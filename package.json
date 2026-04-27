@@ -1,0 +1,9 @@
+{
+  "name": "altos-8-bit-quest",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "deploy:cloudflare": "npx wrangler pages deploy . --project-name altos-8-bit-quest --branch main",
+    "pages:dev": "npx wrangler pages dev ."
+  }
+}

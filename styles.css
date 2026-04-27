@@ -1,0 +1,107 @@
+:root {
+  color-scheme: dark;
+  --gold: #f7c64a;
+  --blue: #37d6ff;
+  --red: #e83f5f;
+  --ink: #0a0d16;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(55, 214, 255, 0.12), transparent 28rem),
+    linear-gradient(180deg, #15192b, #05060b 70%);
+  color: #ffe899;
+  font-family: "Courier New", Courier, monospace;
+}
+
+.cabinet {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  align-items: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 18px;
+}
+
+.screen {
+  position: relative;
+  width: min(100vw - 36px, calc((100vh - 112px) * 16 / 9));
+  aspect-ratio: 16 / 9;
+  border: 6px solid #1c2438;
+  outline: 2px solid rgba(247, 198, 74, 0.6);
+  background: #000;
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.58),
+    0 0 38px rgba(55, 214, 255, 0.14),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.06);
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.scanlines {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.04) 0,
+      rgba(255, 255, 255, 0.04) 1px,
+      rgba(0, 0, 0, 0.14) 2px,
+      rgba(0, 0, 0, 0.14) 4px
+    );
+  mix-blend-mode: soft-light;
+}
+
+.marquee {
+  width: min(100vw - 36px, calc((100vh - 112px) * 16 / 9));
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 3px solid #27314a;
+  background: linear-gradient(180deg, #191f35, #0b0e1c);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
+.marquee span {
+  color: var(--gold);
+  font-size: clamp(14px, 2.6vw, 22px);
+  font-weight: 900;
+  letter-spacing: 0;
+  text-shadow: 2px 2px 0 #60233b;
+}
+
+#restart {
+  height: 30px;
+  min-width: 72px;
+  border: 2px solid var(--gold);
+  border-radius: 0;
+  background: #382033;
+  color: #ffe899;
+  font: 900 14px "Courier New", Courier, monospace;
+  box-shadow: 3px 3px 0 #05060b;
+}
+
+#restart:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #05060b;
+}

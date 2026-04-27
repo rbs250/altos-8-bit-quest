@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Altos 8-Bit Quest</title>
+  <meta name="description" content="A retro HD pixel-art dragon platformer: hatch Altos, fly, breathe fire, collect gems, and evolve.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Altos 8-Bit Quest">
+  <meta property="og:description" content="Hatch Altos, fly, breathe fire, collect gems, and evolve in a retro HD dragon platformer.">
+  <meta property="og:image" content="./assets/cover-social.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Altos 8-Bit Quest">
+  <meta name="twitter:description" content="A retro HD dragon platformer for the browser.">
+  <meta name="twitter:image" content="./assets/cover-social.png">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="cabinet">
+    <div class="screen">
+      <canvas id="game" width="640" height="360" tabindex="0" aria-label="Altos 8-Bit Quest game"></canvas>
+      <div class="scanlines"></div>
+    </div>
+    <div class="marquee">
+      <span>ALTOS 8-BIT QUEST</span>
+      <button id="restart" type="button">RESET</button>
+    </div>
+  </main>
+  <script src="./characters.js"></script>
+  <script src="./game.js"></script>
+</body>
+</html>
