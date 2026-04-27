@@ -18,12 +18,13 @@
 
   const MODE = {
     TITLE: 0,
-    EGG: 1,
-    HATCH: 2,
-    PLAY: 3,
-    EVOLVE: 4,
-    PAUSE: 5,
-    END: 6
+    SELECT: 1,
+    EGG: 2,
+    HATCH: 3,
+    PLAY: 4,
+    EVOLVE: 5,
+    PAUSE: 6,
+    END: 7
   };
 
   const PAL = {
@@ -85,6 +86,9 @@
   let eggshell = [];
   let fireCooldown = 0;
   let flapHeld = false;
+  let selectedCharacter = Number(localStorage.getItem("altosSelectedCharacter") || 0);
+  if (!Number.isFinite(selectedCharacter)) selectedCharacter = 0;
+  selectedCharacter = clamp(selectedCharacter, 0, CHARACTERS.length - 1);
 
   const player = {
     x: 56,
@@ -105,6 +109,14 @@
 
   const stageNames = CHARACTERS.map(character => String(character.name || character.id).toUpperCase());
   const stageNeed = CHARACTERS.map((_, index) => index >= CHARACTERS.length - 1 ? 999 : 5 + index * 2);
+  const eggPalettes = [
+    { shell: PAL.blue, shade: PAL.blue3, light: PAL.blue2, accent: PAL.gold, gem: PAL.purple, spark: PAL.white },
+    { shell: "#43c9ff", shade: "#245ed8", light: "#b9f5ff", accent: PAL.gold2, gem: PAL.red, spark: PAL.blue2 },
+    { shell: "#5ed7ff", shade: "#253a9c", light: "#d7fbff", accent: "#ff8a65", gem: "#6a4fe3", spark: PAL.gold2 },
+    { shell: "#36b8f2", shade: "#143b87", light: "#bff8ff", accent: "#f2b64d", gem: "#e83f5f", spark: PAL.white },
+    { shell: "#53c4ff", shade: "#2843a8", light: "#e0fbff", accent: "#ffcf5c", gem: "#ff5f7a", spark: PAL.gold2 },
+    { shell: "#62e2ff", shade: "#2248b5", light: "#d9ffff", accent: "#ffdf7a", gem: "#d74bff", spark: PAL.blue2 }
+  ];
 
   function reset() {
     clearKeys();
@@ -129,7 +141,7 @@
     player.ground = false;
     player.stamina = 1;
     player.hp = 5;
-    player.stage = 0;
+    player.stage = selectedCharacter;
     player.xp = 0;
     player.invuln = 0;
     player.fireFlash = 0;
@@ -228,6 +240,30 @@
     floatText.push({ text, x, y, life: 0.85, c });
   }
 
+  function selectedName() {
+    return stageNames[selectedCharacter] || "ALTOS";
+  }
+
+  function selectedEggPalette() {
+    return eggPalettes[selectedCharacter % eggPalettes.length];
+  }
+
+  function startSelect() {
+    ensureAudio();
+    mode = MODE.SELECT;
+    hatchTimer = 0;
+    particles.length = 0;
+    arpeggio(196);
+  }
+
+  function chooseCharacter(delta) {
+    selectedCharacter = (selectedCharacter + delta + CHARACTERS.length) % CHARACTERS.length;
+    localStorage.setItem("altosSelectedCharacter", String(selectedCharacter));
+    hatchTimer = 0;
+    addDust(W / 2, 108, 12, selectedEggPalette().spark);
+    beep(220 + selectedCharacter * 24, 0.055, "square", 0.026, 1.22);
+  }
+
   function startEgg() {
     ensureAudio();
     mode = MODE.EGG;
@@ -265,10 +301,10 @@
     player.vy = 0;
     player.hp = 5;
     player.stamina = 1;
-    player.stage = 0;
+    player.stage = selectedCharacter;
     player.xp = 0;
     cameraX = 0;
-    addText("ALTOS!", player.x, player.y - 16, PAL.gold2);
+    addText(selectedName() + "!", player.x, player.y - 16, PAL.gold2);
   }
 
   function evolve() {
@@ -292,6 +328,10 @@
     updatePlatforms(dt);
 
     if (mode === MODE.TITLE) return;
+    if (mode === MODE.SELECT) {
+      hatchTimer += dt;
+      return;
+    }
     if (mode === MODE.EGG) {
       warmth = clamp(warmth - dt * 7, 0, 100);
       if ((keys.Enter || keys.Space) && hatchTimer <= 0) {
@@ -555,6 +595,7 @@
     ctx.save();
     ctx.translate(ox, oy);
     if (mode === MODE.TITLE) drawTitle();
+    else if (mode === MODE.SELECT) drawSelect();
     else if (mode === MODE.EGG) drawEgg();
     else if (mode === MODE.HATCH) drawHatch();
     else {
@@ -577,7 +618,8 @@
     drawDragonSprite(192, 112, 3, 1, false);
     text("HATCH A DRAGON. FLY. EVOLVE.", 35, 78, PAL.blue2, 1);
     blinkText("PRESS ENTER", 110, 128, PAL.gold2);
-    text("BEST " + best, 132, 146, PAL.white, 1);
+    text("NEXT: CHOOSE YOUR DRAGON", 72, 140, PAL.white, 1);
+    text("BEST " + best, 132, 154, PAL.white, 1);
     drawBorder();
   }
 
@@ -587,9 +629,52 @@
     text("8-BIT QUEST", x + 4, y + 34, PAL.red2, 2);
   }
 
+  function drawSelect() {
+    drawSky(0);
+    text("CHOOSE YOUR DRAGON", 42, 18, PAL.gold2, 2);
+    text("A/D OR ARROWS", 94, 38, PAL.blue2, 1);
+
+    for (let offset = -1; offset <= 1; offset += 1) {
+      const idx = (selectedCharacter + offset + CHARACTERS.length) % CHARACTERS.length;
+      const selected = offset === 0;
+      const cx = 160 + offset * 76;
+      const platformY = selected ? 126 : 132;
+      const cardW = selected ? 70 : 58;
+      const cardX = cx - cardW / 2;
+
+      rect(cardX, platformY, cardW, 4, selected ? PAL.gold2 : PAL.gold);
+      rect(cardX + 2, platformY + 4, cardW - 4, 7, selected ? "#7b4b2c" : "#4c2f27");
+      for (let tx = 0; tx < cardW; tx += 8) rect(cardX + tx + 3, platformY - 3, 3, 3, PAL.grass);
+
+      if (selected) {
+        rect(cardX - 2, platformY - 2, 2, 15, PAL.blue2);
+        rect(cardX + cardW, platformY - 2, 2, 15, PAL.blue2);
+        drawSelectionSparks(cx, 91);
+      }
+
+      drawDragonPreview(cx, selected ? 124 : 128, idx, selected ? 76 : 50, selected && Math.floor(time * 3) % 2 === 0);
+      text(stageNames[idx], cx - 25, platformY + 16, selected ? PAL.gold2 : PAL.white, 1);
+    }
+
+    text("<", 42, 96, PAL.gold2, 3);
+    text(">", 264, 96, PAL.gold2, 3);
+    blinkText("ENTER TO INCUBATE", 88, 160, PAL.white);
+    drawParticlesScreen();
+    drawBorder();
+  }
+
+  function drawSelectionSparks(x, y) {
+    for (let i = 0; i < 8; i += 1) {
+      const a = time * 2.4 + i * 0.78;
+      const sx = x + Math.cos(a) * (31 + (i % 2) * 4);
+      const sy = y + Math.sin(a * 1.2) * 22;
+      rect(sx, sy, 2, 2, i % 2 ? PAL.gold2 : PAL.blue2);
+    }
+  }
+
   function drawEgg() {
     drawSky(0);
-    text("INCUBATE ALTOS", 76, 22, PAL.gold2, 2);
+    text("INCUBATE " + selectedName(), 54, 22, PAL.gold2, 2);
     text("TAP ENTER OR CLICK", 84, 42, PAL.white, 1);
     drawPixelEgg(W / 2, 96, warmth);
     bar(80, 142, 160, 10, warmth / 100, PAL.red, PAL.gold2);
@@ -611,8 +696,8 @@
       rect(e.x + 1, e.y, e.r, 1, PAL.white);
     }
     if (hatchTimer > 0.55) {
-      drawDragonSprite(W / 2 - 15, 114 - Math.sin(time * 9) * 4, 0, 1, true);
-      text("ALTOS IS BORN!", 88, 36, PAL.gold2, 2);
+      drawDragonSprite(W / 2 - 15, 114 - Math.sin(time * 9) * 4, selectedCharacter, 1, true);
+      text(selectedName() + " IS BORN!", 72, 36, PAL.gold2, 2);
     }
     drawParticlesScreen();
     drawBorder();
@@ -728,6 +813,19 @@
     drawBlockDragonSprite(x, y, stage, face, flying);
   }
 
+  function drawDragonPreview(x, y, stage, size, flying) {
+    const img = spriteSheets[stage];
+    const frame = flying ? 5 + (Math.floor(time * 8) % 2) : Math.floor(time * 2.2) % 2;
+    const visualBottom = flying ? 0.80 : 0.84;
+    const dx = Math.floor(x - size / 2);
+    const dy = Math.floor(y - size * visualBottom);
+    if (img && img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, frame * SPRITE_FRAME, 0, SPRITE_FRAME, SPRITE_FRAME, dx, dy, size, size);
+      return;
+    }
+    drawBlockDragonSprite(dx, dy, stage, 1, flying);
+  }
+
   function drawSheetDragonSprite(x, y, stage, face, flying, img) {
     const moving = mode === MODE.PLAY && Math.abs(player.vx) > 12 && player.stage === stage;
     let frame = Math.floor(time * 2.2) % 2;
@@ -832,25 +930,102 @@
   }
 
   function drawPixelEgg(x, y, power) {
-    const pulse = Math.floor(Math.sin(time * 18) * clamp(power / 28, 0, 4));
+    const pal = selectedEggPalette();
+    const heat = clamp(power / 100, 0, 1);
+    const pulse = Math.round(Math.sin(time * 15) * heat * 2);
     x = Math.floor(x + pulse);
-    const glow = power > 30;
-    if (glow) {
-      rect(x - 22, y - 25, 44, 50, "#164567");
-      rect(x - 17, y - 30, 34, 60, "#17658b");
+
+    ctx.save();
+    ctx.globalAlpha = 0.20 + heat * 0.42;
+    rect(x - 42, y - 40, 84, 82, pal.shade);
+    rect(x - 34, y - 48, 68, 98, pal.shell);
+    rect(x - 24, y - 55, 48, 110, pal.light);
+    ctx.restore();
+
+    drawEggPedestal(x, y + 34, pal);
+    drawEggShell(x, y, pal, heat);
+    drawEggCracks(x, y, heat, pal);
+    drawEggAura(x, y, heat, pal);
+  }
+
+  function drawEggPedestal(x, y, pal) {
+    rect(x - 42, y, 84, 4, PAL.gold);
+    rect(x - 39, y + 4, 78, 8, "#7b4b2c");
+    rect(x - 36, y + 12, 72, 3, "#4c2f27");
+    for (let i = -34; i <= 34; i += 8) rect(x + i, y - 4, 3, 4, PAL.grass);
+    rect(x - 53, y - 1, 10, 3, PAL.white);
+    rect(x + 43, y - 1, 10, 3, PAL.white);
+    drawCrystal(x - 56, y - 17);
+    drawCrystal(x + 47, y - 12);
+    rect(x - 14, y - 7, 5, 5, pal.gem);
+    rect(x + 10, y - 6, 4, 4, pal.accent);
+  }
+
+  function drawEggShell(x, y, pal, heat) {
+    const rows = [
+      [-34, 7, 3, pal.light],
+      [-31, 12, 4, pal.light],
+      [-27, 17, 4, pal.shell],
+      [-23, 21, 4, pal.shell],
+      [-19, 25, 5, pal.shell],
+      [-14, 28, 5, pal.shell],
+      [-9, 30, 6, pal.shell],
+      [-3, 31, 6, pal.shell],
+      [3, 31, 6, pal.shell],
+      [9, 29, 6, pal.shade],
+      [15, 26, 5, pal.shade],
+      [20, 22, 5, pal.shade],
+      [25, 17, 4, pal.shade],
+      [29, 11, 4, pal.shade]
+    ];
+
+    for (const [dy, hw, h, color] of rows) {
+      rect(x - hw - 3, y + dy - 1, hw * 2 + 6, h + 2, "#071024");
+      rect(x - hw, y + dy, hw * 2, h, color);
     }
-    rect(x - 12, y - 22, 24, 4, PAL.gold);
-    rect(x - 18, y - 18, 36, 8, PAL.blue2);
-    rect(x - 22, y - 10, 44, 18, PAL.blue);
-    rect(x - 18, y + 8, 36, 12, PAL.blue3);
-    rect(x - 10, y + 20, 20, 5, PAL.blue3);
-    rect(x - 4, y - 29, 8, 7, PAL.gold2);
-    rect(x - 15, y - 16, 8, 8, PAL.purple);
-    rect(x + 5, y - 15, 9, 8, PAL.purple);
-    rect(x - 8, y - 8, 16, 8, PAL.blue2);
-    if (power > 32) rect(x - 6, y - 2, 15, 1, PAL.white);
-    if (power > 55) rect(x + 3, y - 11, 2, 19, PAL.white);
-    if (power > 78) rect(x - 13, y + 4, 20, 2, PAL.white);
+
+    rect(x - 17, y - 23, 8, 8, pal.gem);
+    rect(x + 10, y - 21, 7, 7, pal.gem);
+    rect(x - 20, y - 6, 7, 7, pal.accent);
+    rect(x + 14, y + 6, 6, 6, pal.accent);
+    rect(x - 5, y - 31, 10, 4, PAL.gold2);
+    rect(x - 2, y - 36, 4, 5, PAL.gold2);
+
+    rect(x - 18, y - 28, 20, 3, PAL.white);
+    rect(x - 24, y - 20, 8, 3, PAL.white);
+    rect(x - 4, y - 16, 13, 2, PAL.white);
+    if (heat > 0.35) rect(x - 13, y + 7, 20, 2, pal.spark);
+    if (heat > 0.65) rect(x + 6, y - 4, 2, 19, PAL.white);
+  }
+
+  function drawEggCracks(x, y, heat, pal) {
+    if (heat <= 0.24) return;
+    const crack = heat > 0.72 ? PAL.white : PAL.gold2;
+    rect(x + 4, y - 26, 2, 8, crack);
+    rect(x + 2, y - 18, 4, 2, crack);
+    rect(x + 1, y - 16, 2, 8, crack);
+    if (heat > 0.48) {
+      rect(x - 6, y - 8, 8, 2, crack);
+      rect(x - 8, y - 6, 2, 8, crack);
+      rect(x - 14, y + 2, 8, 2, crack);
+    }
+    if (heat > 0.75) {
+      rect(x + 8, y + 4, 12, 2, crack);
+      rect(x + 18, y + 6, 2, 8, crack);
+      rect(x - 2, y + 15, 2, 9, pal.spark);
+    }
+  }
+
+  function drawEggAura(x, y, heat, pal) {
+    const count = 8 + Math.floor(heat * 10);
+    for (let i = 0; i < count; i += 1) {
+      const a = i * 0.72 + time * (1.4 + heat * 2);
+      const r = 34 + (i % 4) * 6 + heat * 12;
+      const sx = x + Math.cos(a) * r;
+      const sy = y + Math.sin(a * 1.15) * (25 + heat * 10);
+      const size = i % 3 === 0 ? 2 : 1;
+      rect(sx, sy, size, size, i % 2 ? pal.spark : pal.accent);
+    }
   }
 
   function drawParticlesScreen() {
@@ -993,7 +1168,12 @@
     if (shouldBlockKey(e)) e.preventDefault();
     ensureAudio();
     const enter = e.code === "Enter" || e.code === "NumpadEnter" || String(e.key || "").toLowerCase() === "enter";
-    if (mode === MODE.TITLE && enter) startEgg();
+    const left = e.code === "ArrowLeft" || e.code === "KeyA";
+    const right = e.code === "ArrowRight" || e.code === "KeyD";
+    if (mode === MODE.TITLE && enter) startSelect();
+    else if (mode === MODE.SELECT && enter) startEgg();
+    else if (mode === MODE.SELECT && left) chooseCharacter(-1);
+    else if (mode === MODE.SELECT && right) chooseCharacter(1);
     else if (mode === MODE.EGG && enter) warmEgg(10);
     else if (mode === MODE.EVOLVE && enter) mode = MODE.PLAY;
     else if (e.code === "KeyR") reset();
@@ -1005,13 +1185,27 @@
     }
   }
 
-  function handlePointerDown() {
+  function handlePointerDown(e) {
     canvas.focus();
     ensureAudio();
-    if (mode === MODE.TITLE) startEgg();
+    if (mode === MODE.TITLE) startSelect();
+    else if (mode === MODE.SELECT) {
+      const p = canvasPoint(e);
+      if (p.x < 104) chooseCharacter(-1);
+      else if (p.x > 216) chooseCharacter(1);
+      else startEgg();
+    }
     else if (mode === MODE.EGG) warmEgg(9);
     else if (mode === MODE.EVOLVE) mode = MODE.PLAY;
     else if (mode === MODE.PLAY) shootFire();
+  }
+
+  function canvasPoint(e) {
+    const box = canvas.getBoundingClientRect();
+    return {
+      x: ((e.clientX - box.left) / box.width) * W,
+      y: ((e.clientY - box.top) / box.height) * H
+    };
   }
 
   window.addEventListener("keydown", handleKeyDown);
