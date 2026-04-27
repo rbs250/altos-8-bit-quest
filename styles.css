@@ -16,21 +16,24 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  overscroll-behavior: none;
   background:
     radial-gradient(circle at 50% 18%, rgba(55, 214, 255, 0.12), transparent 28rem),
     linear-gradient(180deg, #15192b, #05060b 70%);
   color: #ffe899;
   font-family: "Courier New", Courier, monospace;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .cabinet {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: 1fr auto auto;
   align-items: center;
   justify-items: center;
   gap: 12px;
-  padding: 18px;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
 }
 
 .screen {
@@ -50,6 +53,7 @@ canvas {
   display: block;
   width: 100%;
   height: 100%;
+  touch-action: none;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
@@ -104,4 +108,174 @@ canvas {
 #restart:active {
   transform: translate(2px, 2px);
   box-shadow: 1px 1px 0 #05060b;
+}
+
+.touch-controls {
+  width: min(100vw - 24px, calc((100dvh - 112px) * 16 / 9));
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  touch-action: none;
+}
+
+.touch-pad,
+.touch-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.touch-pad {
+  grid-template-columns: repeat(3, 58px);
+}
+
+.touch-actions {
+  grid-template-columns: 70px 66px 76px;
+}
+
+.touch-btn {
+  min-height: 58px;
+  border: 3px solid #27314a;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 38%),
+    #141728;
+  color: #ffe899;
+  font: 900 18px "Courier New", Courier, monospace;
+  letter-spacing: 0;
+  box-shadow:
+    4px 4px 0 #05060b,
+    inset 0 0 0 2px rgba(255, 255, 255, 0.05);
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-action {
+  border-color: var(--gold);
+}
+
+.touch-start {
+  color: var(--blue);
+  font-size: 13px;
+}
+
+.touch-btn.is-held,
+.touch-btn:active {
+  transform: translate(3px, 3px);
+  box-shadow:
+    1px 1px 0 #05060b,
+    inset 0 0 0 2px rgba(123, 232, 255, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 230, 154, 0.18), transparent 38%),
+    #25213a;
+}
+
+@media (pointer: coarse), (hover: none) {
+  html,
+  body {
+    position: fixed;
+    inset: 0;
+  }
+
+  .cabinet {
+    gap: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  .screen {
+    width: min(100vw - 24px, calc((100dvh - 172px) * 16 / 9));
+  }
+
+  .marquee {
+    width: min(100vw - 24px, calc((100dvh - 172px) * 16 / 9));
+    min-height: 42px;
+    padding: 7px 10px;
+  }
+
+  .touch-controls {
+    display: flex;
+    margin-top: auto;
+  }
+}
+
+@media (pointer: coarse) and (orientation: portrait) {
+  .screen,
+  .marquee,
+  .touch-controls {
+    width: calc(100vw - 20px);
+  }
+
+  .touch-controls {
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .touch-pad {
+    grid-template-columns: repeat(3, minmax(48px, 1fr));
+    flex: 1;
+  }
+
+  .touch-actions {
+    grid-template-columns: repeat(3, minmax(52px, 1fr));
+    flex: 1.15;
+  }
+
+  .touch-btn {
+    min-height: 54px;
+    font-size: 17px;
+  }
+
+  .touch-start {
+    font-size: 12px;
+  }
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .cabinet {
+    padding-top: max(6px, env(safe-area-inset-top));
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+  }
+
+  .screen {
+    width: min(72vw, calc((100dvh - 132px) * 16 / 9));
+  }
+
+  .marquee,
+  .touch-controls {
+    width: min(72vw, calc((100dvh - 132px) * 16 / 9));
+  }
+
+  .marquee {
+    min-height: 34px;
+    padding: 5px 9px;
+  }
+
+  .marquee span {
+    font-size: 14px;
+  }
+
+  #restart {
+    height: 26px;
+    min-width: 64px;
+    font-size: 12px;
+  }
+
+  .touch-btn {
+    min-height: 36px;
+    font-size: 15px;
+  }
+
+  .touch-pad {
+    grid-template-columns: repeat(3, 48px);
+  }
+
+  .touch-actions {
+    grid-template-columns: 58px 52px 62px;
+  }
+
+  .touch-start {
+    font-size: 10px;
+  }
 }

@@ -16,6 +16,7 @@ Controls:
 - J / X / click: fire
 - P: pause
 - R or RESET: restart
+- Mobile: touch controls appear automatically for start/select, movement, flap, and fire
 
 Built as a pixel-perfect HTML5 Canvas game with 320x180 game logic rendered into a sharper 640x360 buffer, nearest-neighbor scaling, fixed-step simulation, keyboard state input, and simple Web Audio chiptune effects.
 

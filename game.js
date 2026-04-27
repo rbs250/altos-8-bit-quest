@@ -4,6 +4,7 @@
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d", { alpha: false });
   const restartButton = document.getElementById("restart");
+  const touchButtons = Array.from(document.querySelectorAll("[data-control]"));
 
   const W = 320;
   const H = 180;
@@ -1208,6 +1209,77 @@
     };
   }
 
+  function pressVirtualControl(control) {
+    canvas.focus();
+    ensureAudio();
+
+    if (control === "start") {
+      if (mode === MODE.TITLE) startSelect();
+      else if (mode === MODE.SELECT) startEgg();
+      else if (mode === MODE.EGG) warmEgg(10);
+      else if (mode === MODE.EVOLVE) mode = MODE.PLAY;
+      else if (mode === MODE.PAUSE) mode = prevMode;
+      else if (mode === MODE.END) reset();
+      return;
+    }
+
+    if (mode === MODE.SELECT) {
+      if (control === "left") chooseCharacter(-1);
+      else if (control === "right") chooseCharacter(1);
+      else if (control === "flap" || control === "fire") startEgg();
+      return;
+    }
+
+    if (mode === MODE.EGG && (control === "flap" || control === "fire")) {
+      warmEgg(7);
+    }
+  }
+
+  function setVirtualControl(control, pressed) {
+    if (control === "left") keys.left = pressed;
+    else if (control === "right") keys.right = pressed;
+    else if (control === "down") keys.down = pressed;
+    else if (control === "flap") keys.up = pressed;
+    else if (control === "fire") keys.fire = pressed;
+    else if (control === "start") keys.Enter = pressed;
+  }
+
+  function bindTouchControls() {
+    for (const button of touchButtons) {
+      const control = button.dataset.control;
+      const release = event => {
+        event.preventDefault();
+        button.classList.remove("is-held");
+        setVirtualControl(control, false);
+        if (event.pointerId !== undefined && button.hasPointerCapture && button.hasPointerCapture(event.pointerId)) {
+          button.releasePointerCapture(event.pointerId);
+        }
+      };
+
+      button.addEventListener("pointerdown", event => {
+        event.preventDefault();
+        if (button.setPointerCapture) {
+          try {
+            button.setPointerCapture(event.pointerId);
+          } catch (_) {
+            // Some synthetic/mobile browser events do not expose an active pointer.
+          }
+        }
+        button.classList.add("is-held");
+        pressVirtualControl(control);
+        setVirtualControl(control, true);
+      });
+      button.addEventListener("pointerup", release);
+      button.addEventListener("pointercancel", release);
+      button.addEventListener("lostpointercapture", event => {
+        event.preventDefault();
+        button.classList.remove("is-held");
+        setVirtualControl(control, false);
+      });
+      button.addEventListener("contextmenu", event => event.preventDefault());
+    }
+  }
+
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("keyup", e => {
     setKey(e, false);
@@ -1222,6 +1294,7 @@
     ensureAudio();
     reset();
   });
+  bindTouchControls();
 
   function frame(now) {
     let delta = Math.min(0.12, (now - rafLast) / 1000);
