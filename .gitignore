@@ -1,6 +1,7 @@
 .DS_Store
 Thumbs.db
 verification-*.png
+verification-*.gif
 tools/__pycache__/
 *.pyc
 node_modules/

@@ -56,12 +56,25 @@
   const CHARACTERS = Array.isArray(window.ALTOS_CHARACTERS) && window.ALTOS_CHARACTERS.length
     ? window.ALTOS_CHARACTERS
     : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }];
-  const SPRITE_FRAME = 96;
+  const SPRITE_FRAME = 128;
+  const EGG_FRAME = 128;
+  const EGG_HATCH_FRAMES = 14;
   const spriteSheets = CHARACTERS.map(character => {
     const img = new Image();
     img.src = character.sheet;
     return img;
   });
+  const spriteAtlases = CHARACTERS.map(character => {
+    if (!character.atlas) return null;
+    const img = new Image();
+    img.src = character.atlas;
+    return img;
+  });
+  const eggHatchSheet = new Image();
+  eggHatchSheet.src = "assets/sprites/egg_hatch_sheet.png";
+  const ATTACK_ANIM_TIME = 0.56;
+  const HURT_ANIM_TIME = 0.42;
+  const JUMP_ANIM_TIME = 0.55;
 
   const keys = Object.create(null);
   const platforms = [];
@@ -87,9 +100,6 @@
   let eggshell = [];
   let fireCooldown = 0;
   let flapHeld = false;
-  let selectedCharacter = Number(localStorage.getItem("altosSelectedCharacter") || 0);
-  if (!Number.isFinite(selectedCharacter)) selectedCharacter = 0;
-  selectedCharacter = clamp(selectedCharacter, 0, CHARACTERS.length - 1);
 
   const player = {
     x: 56,
@@ -105,7 +115,11 @@
     stage: 0,
     xp: 0,
     invuln: 0,
-    fireFlash: 0
+    fireFlash: 0,
+    attackAnim: 0,
+    hurtAnim: 0,
+    jumpAnim: 0,
+    deadAnim: 0
   };
 
   const stageNames = CHARACTERS.map(character => String(character.name || character.id).toUpperCase());
@@ -142,10 +156,14 @@
     player.ground = false;
     player.stamina = 1;
     player.hp = 5;
-    player.stage = selectedCharacter;
+    player.stage = 0;
     player.xp = 0;
     player.invuln = 0;
     player.fireFlash = 0;
+    player.attackAnim = 0;
+    player.hurtAnim = 0;
+    player.jumpAnim = 0;
+    player.deadAnim = 0;
     flapHeld = false;
     buildWorld();
   }
@@ -242,11 +260,11 @@
   }
 
   function selectedName() {
-    return stageNames[selectedCharacter] || "ALTOS";
+    return "ALTOS";
   }
 
   function selectedEggPalette() {
-    return eggPalettes[selectedCharacter % eggPalettes.length];
+    return eggPalettes[0];
   }
 
   function startSelect() {
@@ -258,11 +276,11 @@
   }
 
   function chooseCharacter(delta) {
-    selectedCharacter = (selectedCharacter + delta + CHARACTERS.length) % CHARACTERS.length;
-    localStorage.setItem("altosSelectedCharacter", String(selectedCharacter));
     hatchTimer = 0;
-    addDust(W / 2, 108, 12, selectedEggPalette().spark);
-    beep(220 + selectedCharacter * 24, 0.055, "square", 0.026, 1.22);
+    const x = delta < 0 ? 74 : 246;
+    addDust(x, 110, 9, PAL.gold2);
+    addText("COMING SOON", x - 28, 82, PAL.gold2);
+    beep(160, 0.055, "square", 0.022, 0.85);
   }
 
   function startEgg() {
@@ -302,8 +320,12 @@
     player.vy = 0;
     player.hp = 5;
     player.stamina = 1;
-    player.stage = selectedCharacter;
+    player.stage = 0;
     player.xp = 0;
+    player.attackAnim = 0;
+    player.hurtAnim = 0;
+    player.jumpAnim = 0;
+    player.deadAnim = 0;
     cameraX = 0;
     addText(selectedName() + "!", player.x, player.y - 16, PAL.gold2);
   }
@@ -323,6 +345,10 @@
   function update(dt) {
     time += dt;
     fireCooldown = Math.max(0, fireCooldown - dt);
+    player.attackAnim = Math.max(0, player.attackAnim - dt);
+    player.hurtAnim = Math.max(0, player.hurtAnim - dt);
+    player.jumpAnim = Math.max(0, player.jumpAnim - dt);
+    if (mode === MODE.END) player.deadAnim += dt;
     shake = Math.max(0, shake - dt * 16);
 
     updateParticles(dt);
@@ -335,8 +361,8 @@
     }
     if (mode === MODE.EGG) {
       warmth = clamp(warmth - dt * 7, 0, 100);
-      if ((keys.Enter || keys.Space) && hatchTimer <= 0) {
-        warmEgg(7);
+      if ((keys.Enter || keys.Space || keys.up || keys.fire || keys.KeyJ || keys.KeyX) && hatchTimer <= 0) {
+        warmEgg(8);
         hatchTimer = 0.12;
       }
       hatchTimer = Math.max(0, hatchTimer - dt);
@@ -396,6 +422,7 @@
       player.vy = Math.min(player.vy, 0);
       player.vy -= player.ground ? 132 : 92;
       player.ground = false;
+      player.jumpAnim = JUMP_ANIM_TIME;
       player.stamina = clamp(player.stamina - 0.05, 0, 1);
       shake = Math.max(shake, 1.4);
       addDust(player.x + 12, player.y + 18, 8, PAL.blue2);
@@ -507,6 +534,7 @@
       h: 6 + player.stage
     });
     player.fireFlash = 0.18;
+    player.attackAnim = ATTACK_ANIM_TIME;
     addDust(fx, fy, 5, PAL.red2);
     beep(96, 0.08, "sawtooth", 0.032, 0.55);
   }
@@ -547,12 +575,14 @@
   function hurt() {
     if (player.invuln > 0) return;
     player.invuln = 1;
+    player.hurtAnim = HURT_ANIM_TIME;
     player.hp -= 1;
     shake = 6;
     addText("OUCH", player.x, player.y - 8, PAL.red);
     beep(120, 0.13, "sawtooth", 0.04, 0.45);
     if (player.hp <= 0) {
       mode = MODE.END;
+      player.deadAnim = 0;
       arpeggio(130);
     }
   }
@@ -633,35 +663,76 @@
   function drawSelect() {
     drawSky(0);
     text("CHOOSE YOUR DRAGON", 42, 18, PAL.gold2, 2);
-    text("A/D OR ARROWS", 94, 38, PAL.blue2, 1);
+    text("MORE DRAGONS SOON", 88, 38, PAL.blue2, 1);
 
-    for (let offset = -1; offset <= 1; offset += 1) {
-      const idx = (selectedCharacter + offset + CHARACTERS.length) % CHARACTERS.length;
-      const selected = offset === 0;
-      const cx = 160 + offset * 76;
-      const platformY = selected ? 126 : 132;
-      const cardW = selected ? 70 : 58;
-      const cardX = cx - cardW / 2;
+    drawLockedDragonSlot(74, 132);
 
-      rect(cardX, platformY, cardW, 4, selected ? PAL.gold2 : PAL.gold);
-      rect(cardX + 2, platformY + 4, cardW - 4, 7, selected ? "#7b4b2c" : "#4c2f27");
-      for (let tx = 0; tx < cardW; tx += 8) rect(cardX + tx + 3, platformY - 3, 3, 3, PAL.grass);
+    const cx = 160;
+    const platformY = 126;
+    const cardW = 76;
+    const cardX = cx - cardW / 2;
+    rect(cardX, platformY, cardW, 4, PAL.gold2);
+    rect(cardX + 2, platformY + 4, cardW - 4, 7, "#7b4b2c");
+    for (let tx = 0; tx < cardW; tx += 8) rect(cardX + tx + 3, platformY - 3, 3, 3, PAL.grass);
+    rect(cardX - 2, platformY - 2, 2, 15, PAL.blue2);
+    rect(cardX + cardW, platformY - 2, 2, 15, PAL.blue2);
+    drawSelectionSparks(cx, 91);
+    drawDragonPreview(cx, 124, 0, 78, Math.floor(time * 3) % 2 === 0);
+    text("ALTOS", cx - 20, platformY + 16, PAL.gold2, 1);
 
-      if (selected) {
-        rect(cardX - 2, platformY - 2, 2, 15, PAL.blue2);
-        rect(cardX + cardW, platformY - 2, 2, 15, PAL.blue2);
-        drawSelectionSparks(cx, 91);
-      }
-
-      drawDragonPreview(cx, selected ? 124 : 128, idx, selected ? 76 : 50, selected && Math.floor(time * 3) % 2 === 0);
-      text(stageNames[idx], cx - 25, platformY + 16, selected ? PAL.gold2 : PAL.white, 1);
-    }
+    drawLockedDragonSlot(246, 132);
 
     text("<", 42, 96, PAL.gold2, 3);
     text(">", 264, 96, PAL.gold2, 3);
     blinkText("ENTER TO INCUBATE", 88, 160, PAL.white);
     drawParticlesScreen();
     drawBorder();
+  }
+
+  function drawLockedDragonSlot(cx, platformY) {
+    const cardW = 58;
+    const cardX = cx - cardW / 2;
+    rect(cardX, platformY, cardW, 4, PAL.gold);
+    rect(cardX + 2, platformY + 4, cardW - 4, 7, "#4c2f27");
+    for (let tx = 0; tx < cardW; tx += 8) rect(cardX + tx + 3, platformY - 3, 3, 3, PAL.grass);
+    drawMysteryDragonPreview(cx, platformY - 2, 52);
+    text("???", cx - 12, platformY + 16, PAL.white, 1);
+  }
+
+  function drawMysteryDragonPreview(x, y, size) {
+    const s = size / 64;
+    const c = "#060815";
+    const edge = "#23304c";
+    ctx.save();
+    ctx.globalAlpha = 0.86;
+    fillPoly([
+      [x - 26 * s, y - 12 * s],
+      [x - 9 * s, y - 25 * s],
+      [x + 13 * s, y - 18 * s],
+      [x + 27 * s, y - 22 * s],
+      [x + 19 * s, y - 8 * s],
+      [x - 14 * s, y - 5 * s]
+    ], edge);
+    fillPoly([
+      [x - 2 * s, y - 27 * s],
+      [x - 30 * s, y - 55 * s],
+      [x - 20 * s, y - 17 * s]
+    ], c);
+    fillPoly([
+      [x + 3 * s, y - 27 * s],
+      [x + 30 * s, y - 52 * s],
+      [x + 22 * s, y - 17 * s]
+    ], c);
+    rect(x - 17 * s, y - 23 * s, 34 * s, 18 * s, c);
+    rect(x + 10 * s, y - 34 * s, 23 * s, 12 * s, c);
+    rect(x - 33 * s, y - 11 * s, 21 * s, 5 * s, c);
+    rect(x - 10 * s, y - 5 * s, 5 * s, 9 * s, c);
+    rect(x + 9 * s, y - 5 * s, 5 * s, 9 * s, c);
+    rect(x + 19 * s, y - 39 * s, 2 * s, 7 * s, edge);
+    rect(x + 27 * s, y - 39 * s, 2 * s, 7 * s, edge);
+    ctx.globalAlpha = 1;
+    text("?", x - 8, y - 58, PAL.gold2, 3);
+    ctx.restore();
   }
 
   function drawSelectionSparks(x, y) {
@@ -676,8 +747,7 @@
   function drawEgg() {
     drawSky(0);
     text("INCUBATE " + selectedName(), 54, 22, PAL.gold2, 2);
-    text("TAP ENTER OR CLICK", 84, 42, PAL.white, 1);
-    drawPixelEgg(W / 2, 96, warmth);
+    drawIncubationEgg(W / 2, 96, warmth);
     bar(80, 142, 160, 10, warmth / 100, PAL.red, PAL.gold2);
     text(Math.round(warmth) + "% WARM", 124, 156, PAL.blue2, 1);
     drawParticlesScreen();
@@ -692,12 +762,15 @@
       const a = i * 0.45 + time * 0.4;
       line(W / 2, 96, W / 2 + Math.cos(a) * (30 + hatchTimer * 120), 96 + Math.sin(a) * (20 + hatchTimer * 85), i % 2 ? PAL.blue2 : PAL.gold2);
     }
-    for (const e of eggshell) {
-      rect(e.x, e.y, e.r + 2, e.r, e.c);
-      rect(e.x + 1, e.y, e.r, 1, PAL.white);
+    const spriteDrawn = drawHatchingEgg(W / 2, 96, hatchTimer);
+    if (!spriteDrawn) {
+      for (const e of eggshell) {
+        rect(e.x, e.y, e.r + 2, e.r, e.c);
+        rect(e.x + 1, e.y, e.r, 1, PAL.white);
+      }
     }
-    if (hatchTimer > 0.55) {
-      drawDragonSprite(W / 2 - 15, 114 - Math.sin(time * 9) * 4, selectedCharacter, 1, true);
+    if (hatchTimer > 0.86) {
+      drawDragonSprite(W / 2 - 15, 114 - Math.sin(time * 9) * 4, 0, 1, true);
       text(selectedName() + " IS BORN!", 72, 36, PAL.gold2, 2);
     }
     drawParticlesScreen();
@@ -806,6 +879,11 @@
   }
 
   function drawDragonSprite(x, y, stage, face, flying) {
+    const atlas = spriteAtlases[stage];
+    if (atlas && atlas.complete && atlas.naturalWidth > 0 && characterAnimations(stage)) {
+      drawAtlasDragonSprite(x, y, stage, face, flying, atlas);
+      return;
+    }
     const img = spriteSheets[stage];
     if (img && img.complete && img.naturalWidth > 0) {
       drawSheetDragonSprite(x, y, stage, face, flying, img);
@@ -815,6 +893,12 @@
   }
 
   function drawDragonPreview(x, y, stage, size, flying) {
+    const atlas = spriteAtlases[stage];
+    if (atlas && atlas.complete && atlas.naturalWidth > 0 && characterAnimations(stage)) {
+      const state = { name: flying ? "flight" : "idle", elapsed: time, loop: true };
+      drawAtlasFrame(stage, atlas, state, x, y, size, 1, flying ? 0.86 : 0.94);
+      return;
+    }
     const img = spriteSheets[stage];
     const frame = flying ? 5 + (Math.floor(time * 8) % 2) : Math.floor(time * 2.2) % 2;
     const visualBottom = flying ? 0.80 : 0.84;
@@ -825,6 +909,63 @@
       return;
     }
     drawBlockDragonSprite(dx, dy, stage, 1, flying);
+  }
+
+  function characterAnimations(stage) {
+    const character = CHARACTERS[stage];
+    return character && character.animations ? character.animations : null;
+  }
+
+  function animationStateFor(stage, flying) {
+    const isPlayer = stage === player.stage && (mode === MODE.PLAY || mode === MODE.EVOLVE || mode === MODE.END || mode === MODE.PAUSE);
+    if (!isPlayer) return { name: flying ? "flight" : "idle", elapsed: time, loop: true };
+    if (mode === MODE.EVOLVE) return { name: flying ? "flight" : "idle", elapsed: time, loop: true };
+    if (mode === MODE.END || player.hp <= 0) return { name: "dead", elapsed: player.deadAnim, once: true };
+    if (player.hurtAnim > 0) return { name: "hurt", elapsed: HURT_ANIM_TIME - player.hurtAnim, once: true };
+    if (player.attackAnim > 0) return { name: "attack", elapsed: ATTACK_ANIM_TIME - player.attackAnim, once: true };
+    if (!player.ground) {
+      if (player.jumpAnim > 0) return { name: "jump", elapsed: JUMP_ANIM_TIME - player.jumpAnim, once: true };
+      return { name: "flight", elapsed: time, loop: true };
+    }
+    if (Math.abs(player.vx) > 12) return { name: "walk", elapsed: time, loop: true };
+    return { name: "idle", elapsed: time, loop: true };
+  }
+
+  function drawAtlasDragonSprite(x, y, stage, face, flying, atlas) {
+    const state = animationStateFor(stage, flying);
+    const size = 80 + Math.min(stage, 5) * 5;
+    const bob = state.name === "flight" ? Math.round(Math.sin(time * 14) * 2) : 0;
+    const visualBottom = state.name === "flight" || state.name === "jump" ? 0.88 : 0.96;
+    drawAtlasFrame(stage, atlas, state, x + player.w / 2, y + player.h + bob, size, face, visualBottom);
+  }
+
+  function drawAtlasFrame(stage, atlas, state, x, y, size, face, visualBottom) {
+    const character = CHARACTERS[stage];
+    const animations = characterAnimations(stage);
+    if (!animations) return false;
+    const anim = animations[state.name] || animations.idle;
+    if (!anim) return false;
+    const frameW = character.frameWidth || 160;
+    const frameH = character.frameHeight || 160;
+    const frameCount = Math.max(1, anim.frames || 1);
+    const fps = anim.fps || 8;
+    const rawFrame = Math.floor((state.elapsed || 0) * fps);
+    const frame = anim.once || state.once ? Math.min(frameCount - 1, rawFrame) : rawFrame % frameCount;
+    const sx = frame * frameW;
+    const sy = anim.row * frameH;
+    const dx = Math.floor(x - size / 2);
+    const dy = Math.floor(y - size * visualBottom);
+
+    ctx.save();
+    if (face < 0) {
+      ctx.translate(dx + size, dy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(atlas, sx, sy, frameW, frameH, 0, 0, size, size);
+    } else {
+      ctx.drawImage(atlas, sx, sy, frameW, frameH, dx, dy, size, size);
+    }
+    ctx.restore();
+    return true;
   }
 
   function drawSheetDragonSprite(x, y, stage, face, flying, img) {
@@ -928,6 +1069,46 @@
     rect(x, y, 4, 8 + lift, PAL.blue3);
     rect(x - 1, y + 7 + lift, 7, 3, PAL.blue);
     rect(x + 4, y + 8 + lift, 2, 2, PAL.gold2);
+  }
+
+  function drawIncubationEgg(x, y, power) {
+    const heat = clamp(power / 100, 0, 1);
+    const wobble = Math.round(Math.sin(time * 15) * heat * 2);
+    const frame = Math.min(5, Math.floor(heat * 5.99));
+    if (drawEggHatchFrame(x + wobble, y, frame)) {
+      drawEggAura(x + wobble, y, heat, selectedEggPalette());
+      return;
+    }
+    drawPixelEgg(x, y, power);
+  }
+
+  function drawHatchingEgg(x, y, timer) {
+    const firstOpenFrame = 6;
+    const progress = clamp(timer / 0.95, 0, 0.999);
+    const frame = Math.min(
+      EGG_HATCH_FRAMES - 1,
+      firstOpenFrame + Math.floor(progress * (EGG_HATCH_FRAMES - firstOpenFrame))
+    );
+    return drawEggHatchFrame(x, y, frame);
+  }
+
+  function drawEggHatchFrame(x, y, frame) {
+    if (!eggHatchSheet.complete || eggHatchSheet.naturalWidth < EGG_FRAME) return false;
+    const size = 104;
+    const dx = Math.floor(x - size / 2);
+    const dy = Math.floor(y - 68);
+    ctx.drawImage(
+      eggHatchSheet,
+      frame * EGG_FRAME,
+      0,
+      EGG_FRAME,
+      EGG_FRAME,
+      dx,
+      dy,
+      size,
+      size
+    );
+    return true;
   }
 
   function drawPixelEgg(x, y, power) {

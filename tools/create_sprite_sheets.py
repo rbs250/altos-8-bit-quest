@@ -1,363 +1,380 @@
 from pathlib import Path
-from PIL import Image, ImageFilter
+from collections import deque
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 
-ROOT = Path(__file__).resolve().parents[2]
-GAME = ROOT / "Altos 8-Bit Quest"
-SPRITES = GAME / "assets" / "sprites"
-SPRITES.mkdir(parents=True, exist_ok=True)
+PROJECT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = PROJECT.parent
+OUT_DIR = PROJECT / "assets" / "sprites"
+VERIFY = PROJECT / "verification-dragon-sheets-v3.png"
 
-FRAME = 96
-SHEET_COLS = 8
-FRAME_NAMES = ["idle1", "idle2", "run1", "run2", "run3", "fly1", "fly2", "fire"]
+FRAME = 128
+COLS = 8
+BG = (17, 26, 51, 255)
 
 SOURCES = [
-    ("altos_01", ROOT / "WhatsApp Image 2026-02-22 at 23.50.57.jpeg"),
-    ("altos_02", ROOT / "WhatsApp Image 2026-02-22 at 23.50.57 (1).jpeg"),
-    ("altos_03", ROOT / "WhatsApp Image 2026-02-22 at 23.50.58.jpeg"),
-    ("altos_04", ROOT / "WhatsApp Image 2026-02-22 at 23.50.58 (1).jpeg"),
-    ("altos_05", ROOT / "WhatsApp Image 2026-02-22 at 23.50.58 (2).jpeg"),
-    ("altos_06", ROOT / "WhatsApp Image 2026-02-22 at 23.50.59.jpeg"),
+    ("altos_01", "WhatsApp Image 2026-02-22 at 23.50.57 (1).jpeg", "ALTOS HATCHLING", 384),
+    ("altos_02", "WhatsApp Image 2026-02-22 at 23.50.57.jpeg", "ALTOS YOUNG", 392),
+    ("altos_03", "WhatsApp Image 2026-02-22 at 23.50.58.jpeg", "ALTOS WINGED", 402),
+    ("altos_04", "WhatsApp Image 2026-02-22 at 23.50.58 (1).jpeg", "ALTOS GUARDIAN", 404),
+    ("altos_05", "WhatsApp Image 2026-02-22 at 23.50.58 (2).jpeg", "ALTOS SKY LORD", 414),
+    ("altos_06", "WhatsApp Image 2026-02-22 at 23.50.59.jpeg", "ALTOS ANCIENT", 410),
 ]
 
+FRAME_LABELS = ["IDLE 1", "IDLE 2", "RUN 1", "RUN 2", "RUN 3", "FLY 1", "FLY 2", "FIRE"]
 
-def clamp(value, lo=0, hi=255):
-    return max(lo, min(hi, value))
-
-
-def make_subject_mask(img):
-    rgb = img.convert("RGB")
-    w, h = rgb.size
-    px = rgb.load()
-    raw = Image.new("L", (w, h), 0)
-    rp = raw.load()
-
-    for y in range(h):
-        yn = y / h
-        for x in range(w):
-            r, g, b = px[x, y]
-            mx = max(r, g, b)
-            mn = min(r, g, b)
-            sat = 0 if mx == 0 else (mx - mn) / mx
-
-            blue_body = b > 68 and g > 54 and b >= r * 0.78 and sat > 0.13
-            red_detail = r > 98 and sat > 0.20 and b < 178
-            gold_detail = r > 112 and g > 72 and b < 145 and sat > 0.16
-            bright_detail = mx > 176 and sat > 0.22
-            keep = blue_body or red_detail or gold_detail or bright_detail
-
-            # The source images include blue-white floor glows and circular rings.
-            # Avoid keeping broad, low-saturation lower-image highlights as seeds.
-            lower_low_sat_glow = yn > 0.58 and mx > 70 and sat < 0.28
-            white_ring = yn > 0.62 and mx > 150 and sat < 0.36
-            if lower_low_sat_glow or white_ring:
-                keep = red_detail or gold_detail or (blue_body and sat > 0.26)
-            if yn > 0.70:
-                keep = (blue_body and sat > 0.40 and mx > 76) or (red_detail and yn < 0.77)
-
-            if keep:
-                score = max((sat - 0.10) / 0.45, (mx - 42) / 170)
-                rp[x, y] = int(clamp(score * 255))
-
-    # Grow the saturated dragon-color seeds to capture adjacent belly, claws,
-    # highlights, and internal antialiasing without bringing back the stage.
-    raw = raw.filter(ImageFilter.MaxFilter(11)).filter(ImageFilter.GaussianBlur(1.2))
-    return raw
+try:
+    from scipy import ndimage as ndi
+except Exception:  # pragma: no cover - only used when scipy is unavailable.
+    ndi = None
 
 
-def trim_transparent(img):
-    bbox = img.getbbox()
-    if not bbox:
-        return img
-    return img.crop(bbox)
-
-
-def strip_floor_pixels(img):
-    px = img.load()
-    w, h = img.size
-    for y in range(int(h * 0.72), h):
-        for x in range(w):
-            r, g, b, a = px[x, y]
-            if a == 0:
-                continue
-            mx = max(r, g, b)
-            mn = min(r, g, b)
-            sat = 0 if mx == 0 else (mx - mn) / mx
-            dragon_color = (
-                (b > 72 and g > 50 and sat > 0.22) or
-                (r > 100 and sat > 0.24 and b < 180) or
-                (r > 115 and g > 72 and b < 145)
-            )
-            if not dragon_color and mx > 44:
-                px[x, y] = (0, 0, 0, 0)
+def normalize_source(path):
+    img = Image.open(path).convert("RGB")
+    if img.size != (512, 512):
+        img = img.resize((512, 512), Image.Resampling.LANCZOS)
+    img = ImageEnhance.Color(img).enhance(1.08)
+    img = ImageEnhance.Contrast(img).enhance(1.07)
     return img
 
 
-def make_base_sprite(src):
-    img = Image.open(src).convert("RGBA")
-    mask = make_subject_mask(img)
-    img.putalpha(mask)
-    img = trim_transparent(img)
+def label_components(mask_np):
+    if ndi is not None:
+        labels, count = ndi.label(mask_np)
+        comps = []
+        for label in range(1, count + 1):
+            ys, xs = np.where(labels == label)
+            if xs.size:
+                comps.append((xs.size, int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1, label))
+        return labels, comps
 
-    padded = Image.new("RGBA", (img.width + 96, img.height + 96), (0, 0, 0, 0))
-    padded.alpha_composite(img, (48, 48))
-
-    scale = min(86 / padded.width, 86 / padded.height)
-    size = (max(1, int(padded.width * scale)), max(1, int(padded.height * scale)))
-    small = padded.resize(size, Image.Resampling.LANCZOS)
-
-    alpha = small.getchannel("A").point(lambda a: 0 if a < 34 else 255)
-    quantized = small.convert("RGB").quantize(colors=40, method=Image.Quantize.MEDIANCUT).convert("RGBA")
-    quantized.putalpha(alpha)
-    return trim_transparent(strip_floor_pixels(quantized))
-
-
-def shear(sprite, amount):
-    w, h = sprite.size
-    pad = int(abs(amount) * h) + 4
-    out = Image.new("RGBA", (w + pad * 2, h), (0, 0, 0, 0))
-    for y in range(h):
-        shift = int((y - h * 0.55) * amount)
-        row = sprite.crop((0, y, w, y + 1))
-        out.alpha_composite(row, (pad + shift, y))
-    return trim_transparent(out)
-
-
-def bob(sprite, dx=0, dy=0, sx=1.0, sy=1.0):
-    w = max(1, int(sprite.width * sx))
-    h = max(1, int(sprite.height * sy))
-    return sprite.resize((w, h), Image.Resampling.NEAREST), dx, dy
-
-
-def fit_frame(sprite, dx=0, dy=0):
-    frame = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
-    x = (FRAME - sprite.width) // 2 + dx
-    y = FRAME - sprite.height - 5 + dy
-    frame.alpha_composite(sprite, (x, y))
-    return frame
-
-
-def draw_pixel_rect(frame, x, y, w, h, color):
-    px = frame.load()
-    for yy in range(max(0, y), min(FRAME, y + h)):
-        for xx in range(max(0, x), min(FRAME, x + w)):
-                px[xx, yy] = color
+    labels = np.zeros(mask_np.shape, dtype=np.int32)
+    h, w = mask_np.shape
+    comps = []
+    label = 0
+    for sy, sx in zip(*np.where(mask_np)):
+        if labels[sy, sx]:
+            continue
+        label += 1
+        q = deque([(int(sx), int(sy))])
+        labels[sy, sx] = label
+        area = 0
+        left = right = int(sx)
+        top = bottom = int(sy)
+        while q:
+            x, y = q.popleft()
+            area += 1
+            left = min(left, x)
+            right = max(right, x)
+            top = min(top, y)
+            bottom = max(bottom, y)
+            for nx in (x - 1, x, x + 1):
+                for ny in (y - 1, y, y + 1):
+                    if nx == x and ny == y:
+                        continue
+                    if nx < 0 or ny < 0 or nx >= w or ny >= h:
+                        continue
+                    if mask_np[ny, nx] and not labels[ny, nx]:
+                        labels[ny, nx] = label
+                        q.append((nx, ny))
+        comps.append((area, left, top, right + 1, bottom + 1, label))
+    return labels, comps
 
 
-def add_pixel_outline(frame):
+def foreground_mask(src, floor_clip):
+    arr = np.asarray(src).astype(np.int16)
+    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+    mx = arr.max(axis=2)
+    mn = arr.min(axis=2)
+    sat = mx - mn
+    luma = r * 0.299 + g * 0.587 + b * 0.114
+    yy, xx = np.mgrid[0:512, 0:512]
+
+    blue = (b > 54) & (g > 45) & (b > r * 0.78) & (g > r * 0.50) & (sat > 18)
+    cyan = (g > 74) & (b > 84) & (sat > 14)
+    red = (r > 70) & (r > g * 1.12) & (r > b * 0.82) & (sat > 24)
+    gold = (r > 92) & (g > 64) & (r > b * 1.04) & (sat > 24)
+    belly = (r > 95) & (g > 90) & (b > 72) & (luma > 94) & (yy < 392)
+    highlights = (luma > 118) & (sat > 10) & (yy < 405)
+
+    mask_np = (blue | cyan | red | gold | belly | highlights) & (mx > 42) & (yy < 448)
+
+    # Strip stage lamps and floor glow while leaving claws/tail pixels for the component pass.
+    floor_glow = (yy > 392) & (
+        ((luma > 86) & (sat < 56))
+        | ((b > 115) & (g > 105) & (r < 95))
+        | ((r > 118) & (g > 92) & (b < 115))
+    )
+    mask_np &= ~floor_glow
+
+    # The reference photos all have glowing circular floor props. They form long
+    # horizontal rows that are visually unrelated to the dragon and should never
+    # become part of the sprite sheet.
+    row_counts = mask_np.sum(axis=1)
+    wide_floor_rows = ((yy > 304) & (row_counts[:, None] > 118)) | ((yy > 342) & (row_counts[:, None] > 78))
+    floor_row_pixel = ((luma < 88) & (sat < 68)) | ((yy > 362) & (luma > 92) & (sat < 72))
+    mask_np &= ~(wide_floor_rows & floor_row_pixel)
+    mask_np &= ~((yy > 312) & (luma < 98) & (sat < 78))
+    mask_np &= ~(yy > floor_clip)
+
+    mask = Image.fromarray((mask_np * 255).astype(np.uint8), "L")
+    mask = mask.filter(ImageFilter.MaxFilter(5))
+    mask = mask.filter(ImageFilter.MinFilter(3))
+    mask = mask.filter(ImageFilter.GaussianBlur(0.65))
+    mask = mask.point(lambda p: 255 if p > 30 else 0)
+    mask_np = np.asarray(mask) > 0
+
+    labels, comps = label_components(mask_np)
+    if not comps:
+        raise RuntimeError("No dragon foreground found")
+
+    def score(comp):
+        area, left, top, right, bottom, _ = comp
+        cx = (left + right) / 2
+        cy = (top + bottom) / 2
+        central = 1.0 - min(0.75, abs(cx - 256) / 360 + abs(cy - 248) / 420)
+        bottom_penalty = 0.22 if top > 340 and bottom > 396 else 1.0
+        short_penalty = 0.35 if (bottom - top) < 45 else 1.0
+        return area * central * bottom_penalty * short_penalty
+
+    main = max(comps, key=score)
+    _, ml, mt, mr, mb, main_label = main
+    keep = labels == main_label
+
+    # Keep meaningful nearby disconnected pieces, but reject floor bulbs/ring scraps.
+    for area, left, top, right, bottom, label in comps:
+        if label == main_label or area < 65:
+            continue
+        near_main = not (right < ml - 18 or left > mr + 18 or bottom < mt - 18 or top > mb + 18)
+        floor_piece = top > 350 and bottom > 392 and (bottom - top) < 76
+        if near_main and not floor_piece:
+            keep |= labels == label
+
+    mask = Image.fromarray((keep * 255).astype(np.uint8), "L")
+    mask = mask.filter(ImageFilter.MaxFilter(3))
+    mask = mask.filter(ImageFilter.GaussianBlur(0.5))
+    mask = mask.point(lambda p: 255 if p > 22 else 0)
+    return mask
+
+
+def add_outline(frame):
     alpha = frame.getchannel("A")
-    bbox = alpha.getbbox()
-    if not bbox:
-        return frame
-    bottom = bbox[3] - 1
-    ap = alpha.load()
-    out = frame.copy()
-    px = out.load()
-    outline = (8, 13, 34, 235)
+    outline = alpha.filter(ImageFilter.MaxFilter(5))
+    outline_np = np.asarray(outline).astype(np.int16)
+    alpha_np = np.asarray(alpha).astype(np.int16)
+    edge = np.clip(outline_np - alpha_np, 0, 255).astype(np.uint8)
+    result = Image.new("RGBA", (FRAME, FRAME), (5, 8, 18, 0))
+    result.putalpha(Image.fromarray((edge * 0.78).astype(np.uint8), "L"))
+    result.alpha_composite(frame)
+    return result
 
-    for y in range(FRAME):
-        for x in range(FRAME):
-            if ap[x, y] != 0:
-                continue
-            if y >= bottom and y > int(FRAME * 0.62):
-                continue
-            neighbor = False
-            for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
-                if 0 <= nx < FRAME and 0 <= ny < FRAME and ap[nx, ny] > 0:
-                    neighbor = True
-                    break
-            if neighbor:
-                px[x, y] = outline
 
+def pixel_grade(frame):
+    alpha = frame.getchannel("A")
+    rgb = frame.convert("RGB")
+    rgb = ImageEnhance.Color(rgb).enhance(1.16)
+    rgb = ImageEnhance.Contrast(rgb).enhance(1.12)
+    rgb = ImageEnhance.Sharpness(rgb).enhance(1.24)
+    graded = rgb.convert("RGBA")
+    graded.putalpha(alpha)
+
+    small = graded.resize((112, 112), Image.Resampling.LANCZOS)
+    small_alpha = small.getchannel("A").point(lambda p: 0 if p < 18 else (255 if p > 226 else p))
+    small_rgb = small.convert("RGB").quantize(colors=88, method=Image.Quantize.MEDIANCUT).convert("RGBA")
+    small_rgb.putalpha(small_alpha)
+    out = small_rgb.resize((FRAME, FRAME), Image.Resampling.NEAREST)
+
+    edge = np.array(out.getchannel("A"))
+    edge[:2, :] = 0
+    edge[-2:, :] = 0
+    edge[:, :2] = 0
+    edge[:, -2:] = 0
+    out.putalpha(Image.fromarray(edge, "L"))
     return out
 
 
-def trim_baseline_shadow(frame):
-    return frame
+def erase_floor_artifacts(frame):
+    arr = np.array(frame).copy()
+    alpha = arr[..., 3]
+    rgb = arr[..., :3].astype(np.int16)
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    mx = rgb.max(axis=2)
+    mn = rgb.min(axis=2)
+    sat = mx - mn
+    luma = r * 0.299 + g * 0.587 + b * 0.114
+    yy = np.mgrid[0:FRAME, 0:FRAME][0]
+
+    filled = alpha > 8
+    support = np.zeros_like(alpha, dtype=np.int16)
+    for shift in range(5, 30):
+        support[shift:, :] += filled[:-shift, :]
+
+    row_counts = filled.sum(axis=1)
+    lower_wide = (yy > 84) & (row_counts[:, None] > 48)
+    floor_like = (
+        ((luma < 116) & (sat < 96))
+        | ((g > 92) & (b > 96) & (r < 112))
+        | ((luma > 142) & (sat < 82))
+    )
+    thin_column = support < 7
+    clear = filled & lower_wide & floor_like & thin_column
+    alpha[clear] = 0
+    arr[..., 3] = alpha
+    return Image.fromarray(arr.astype(np.uint8), "RGBA")
 
 
-def clear_lower_reference_art(frame, start_y):
-    px = frame.load()
-    for y in range(start_y, FRAME):
-        for x in range(FRAME):
-            if px[x, y][3] > 0:
-                px[x, y] = (0, 0, 0, 0)
-    return frame
+def remove_detached_floor_bits(frame):
+    alpha = np.asarray(frame.getchannel("A")) > 8
+    labels, comps = label_components(alpha)
+    if not comps:
+        return frame
+    main = max(comps, key=lambda comp: comp[0])
+    _, ml, mt, mr, mb, main_label = main
+    keep = labels == main_label
+    for area, left, top, right, bottom, label in comps:
+        if label == main_label or area < 8:
+            continue
+        width = right - left
+        height = bottom - top
+        looks_like_floor_chip = top > 94 and height < 12 and (width > 6 or area < 24)
+        near_main = not (right < ml - 10 or left > mr + 10 or bottom < mt - 10 or top > mb + 10)
+        if near_main and not looks_like_floor_chip:
+            keep |= labels == label
+
+    cleaned = frame.copy()
+    cleaned.putalpha(Image.fromarray((keep * 255).astype(np.uint8), "L"))
+    return cleaned
 
 
-def remove_floor_art(frame):
-    # Remove low floor/ring pixels from the reference image without treating
-    # the dragon's feet, claws, or tail as floor.
-    px = frame.load()
-    for y in range(int(FRAME * 0.66), FRAME):
-        for x in range(FRAME):
-            r, g, b, a = px[x, y]
-            if a == 0:
-                continue
-            mx = max(r, g, b)
-            mn = min(r, g, b)
-            sat = 0 if mx == 0 else (mx - mn) / mx
-
-            blue_body = b > 78 and g > 38 and b >= r * 0.92 and sat > 0.62 and y < int(FRAME * 0.79)
-            purple_shadow = b > 62 and r > 35 and sat > 0.58 and b >= g and y < int(FRAME * 0.78)
-            red_tail = r > 95 and sat > 0.52 and b < 165 and y < int(FRAME * 0.76)
-            keep_dragon = blue_body or purple_shadow or red_tail
-
-            floor_glow = b >= r and mx < 140 and sat < 0.70
-            gold_ring = r > 115 and g > 70 and b < 175
-            white_gem = mx > 165 and sat < 0.45
-            bottom_speck = y > int(FRAME * 0.78) and not keep_dragon
-
-            if (floor_glow or gold_ring or white_gem or bottom_speck) and not keep_dragon:
-                px[x, y] = (0, 0, 0, 0)
-
-    alpha = frame.getchannel("A")
-    ap = alpha.load()
-    visited = set()
-    remove = set()
-    for y in range(int(FRAME * 0.68), FRAME):
-        for x in range(FRAME):
-            if ap[x, y] == 0 or (x, y) in visited:
-                continue
-            stack = [(x, y)]
-            visited.add((x, y))
-            points = []
-            min_x = max_x = x
-            min_y = max_y = y
-            while stack:
-                cx, cy = stack.pop()
-                points.append((cx, cy))
-                min_x = min(min_x, cx)
-                max_x = max(max_x, cx)
-                min_y = min(min_y, cy)
-                max_y = max(max_y, cy)
-                for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
-                    if 0 <= nx < FRAME and 0 <= ny < FRAME and ap[nx, ny] and (nx, ny) not in visited:
-                        visited.add((nx, ny))
-                        stack.append((nx, ny))
-            bw = max_x - min_x + 1
-            bh = max_y - min_y + 1
-            if min_y > int(FRAME * 0.72) and (bw > 18 or bh <= 5 or len(points) < 36):
-                remove.update(points)
-
-    for x, y in remove:
-        px[x, y] = (0, 0, 0, 0)
-    return frame
-
-
-def add_leg_marks(frame, phase):
-    draw_leg_pair(frame, phase, flying=False)
-    return frame
-
-
-def add_idle_feet(frame):
-    draw_leg_pair(frame, 1, flying=False)
-    return frame
-
-
-def add_flying_legs(frame):
-    draw_leg_pair(frame, 1, flying=True)
-    return frame
-
-
-def draw_leg_pair(frame, phase, flying=False):
-    bbox = frame.getchannel("A").getbbox()
+def fit_cutout(src, mask, stage_index):
+    bbox = mask.getbbox()
     if not bbox:
-        return
+        raise RuntimeError("Empty dragon mask")
 
-    min_x, _, max_x, max_y = bbox
-    w = max_x - min_x
-    base_y = min(FRAME - 5, max_y + (1 if flying else 4))
-    hip_y = max(max_y - 3, int(FRAME * 0.58))
-    stride = [-3, 2, 4][phase % 3]
-    left_x = int(min_x + w * 0.48) - stride
-    right_x = int(min_x + w * 0.66) + stride // 2
+    pad = 14
+    left = max(0, bbox[0] - pad)
+    top = max(0, bbox[1] - pad)
+    right = min(512, bbox[2] + pad)
+    bottom = min(512, bbox[3] + pad)
 
-    dark = (8, 13, 34, 255)
-    blue = (26, 74, 178, 255)
-    cyan = (72, 195, 228, 255)
-    purple = (49, 34, 91, 255)
-    claw = (245, 234, 210, 255)
+    cut = src.crop((left, top, right, bottom)).convert("RGBA")
+    cut.putalpha(mask.crop((left, top, right, bottom)))
 
-    if flying:
-        draw_pixel_rect(frame, left_x - 1, hip_y, 4, 5, dark)
-        draw_pixel_rect(frame, left_x, hip_y, 2, 4, purple)
-        draw_pixel_rect(frame, right_x - 1, hip_y + 1, 4, 4, dark)
-        draw_pixel_rect(frame, right_x, hip_y + 1, 2, 3, blue)
-        return
+    max_w = 118
+    max_h = 115
+    # The wide adult-wing references need slightly more width and less height to keep their wings.
+    if stage_index >= 4:
+        max_w = 122
+        max_h = 112
 
-    for x, color, toe_dir in ((left_x, purple, -1), (right_x, blue, 1)):
-        draw_pixel_rect(frame, x - 1, hip_y, 4, base_y - hip_y, dark)
-        draw_pixel_rect(frame, x, hip_y, 2, max(2, base_y - hip_y), color)
-        draw_pixel_rect(frame, x + 1, hip_y + 1, 1, max(1, base_y - hip_y - 2), cyan)
-        draw_pixel_rect(frame, x + toe_dir, base_y, 4, 1, dark)
-        draw_pixel_rect(frame, x + toe_dir + 1, base_y, 2, 1, claw)
+    scale = min(max_w / cut.width, max_h / cut.height)
+    cut = cut.resize((max(1, round(cut.width * scale)), max(1, round(cut.height * scale))), Image.Resampling.LANCZOS)
+
+    frame = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
+    x = (FRAME - cut.width) // 2
+    y = 122 - cut.height
+    if y < 4:
+        y = 4
+    frame.alpha_composite(cut, (x, y))
+    frame = erase_floor_artifacts(frame)
+    frame = remove_detached_floor_bits(frame)
+    return pixel_grade(add_outline(frame))
 
 
-def add_wing_marks(frame, high):
-    cyan = (123, 232, 255, 120)
-    if high:
-        draw_pixel_rect(frame, 23, 20, 18, 2, cyan)
-    else:
-        draw_pixel_rect(frame, 20, 46, 20, 2, cyan)
+def paste_pose(base, dx=0, dy=0, sx=1.0, sy=1.0, angle=0):
+    bbox = base.getchannel("A").getbbox()
+    if not bbox:
+        return base.copy()
+    cut = base.crop(bbox)
+    w = max(1, round(cut.width * sx))
+    h = max(1, round(cut.height * sy))
+    cut = cut.resize((w, h), Image.Resampling.BICUBIC)
+    if angle:
+        cut = cut.rotate(angle, expand=True, resample=Image.Resampling.BICUBIC, fillcolor=(0, 0, 0, 0))
+
+    frame = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
+    x = round((FRAME - cut.width) / 2 + dx)
+    y = round(122 - cut.height + dy)
+    x = max(2 - cut.width // 10, min(FRAME - cut.width - 2 + cut.width // 10, x))
+    y = max(3, min(124 - cut.height, y))
+    frame.alpha_composite(cut, (x, y))
+    return pixel_grade(add_outline(frame))
+
+
+def draw_fire(frame, stage_index):
+    draw = ImageDraw.Draw(frame)
+    y = 48 + min(stage_index, 5) * 2
+    x = 96
+    colors = [(232, 63, 95, 255), (255, 138, 101, 255), (255, 230, 154, 255)]
+    draw.polygon([(x, y + 5), (124, y - 5), (111, y + 8), (124, y + 16)], fill=colors[0])
+    draw.polygon([(x + 6, y + 5), (121, y), (111, y + 7), (121, y + 12)], fill=colors[1])
+    draw.rectangle((x + 16, y + 4, x + 28, y + 7), fill=colors[2])
+    draw.rectangle((x + 4, y + 3, x + 11, y + 8), fill=colors[1])
     return frame
 
 
-def add_fire(frame):
-    flame = [
-        (70, 36, 7, 5, (255, 248, 190, 255)),
-        (76, 34, 11, 8, (255, 138, 70, 255)),
-        (86, 36, 7, 6, (232, 63, 95, 255)),
-        (92, 37, 4, 3, (247, 198, 74, 255)),
+def make_frames(base, stage_index):
+    poses = [
+        {},
+        {"dy": -2, "sx": 1.01, "sy": 0.99},
+        {"dx": -2, "dy": 1, "sx": 1.03, "sy": 0.97, "angle": -1.5},
+        {"dx": 1, "dy": -2, "sx": 0.99, "sy": 1.02, "angle": 1.0},
+        {"dx": 3, "dy": 0, "sx": 1.02, "sy": 0.98, "angle": -0.8},
+        {"dx": -1, "dy": -7, "sx": 1.01, "sy": 1.0, "angle": -3.0},
+        {"dx": 2, "dy": -11, "sx": 1.00, "sy": 1.01, "angle": 3.0},
+        {"dx": -1, "dy": -4, "sx": 1.0, "sy": 1.0, "angle": -1.0},
     ]
-    for x, y, w, h, c in flame:
-        draw_pixel_rect(frame, x, y, w, h, c)
-    return frame
+    frames = [paste_pose(base, **pose) for pose in poses]
+    frames[-1] = draw_fire(frames[-1], stage_index)
+    return frames
 
 
-def make_frame(base, dx=0, dy=0, sx=1.0, sy=1.0, skew=0.0, run_phase=None, wing=None, fire=False):
-    spr, dx, dy = bob(base, dx, dy, sx, sy)
-    if skew:
-        spr = shear(spr, skew)
-    frame = fit_frame(spr, dx, dy)
-    frame = remove_floor_art(frame)
-    frame = trim_baseline_shadow(frame)
-    frame = clear_lower_reference_art(frame, int(FRAME * (0.72 if wing is not None else 0.76)))
-    frame = add_pixel_outline(frame)
-    if run_phase is not None:
-        frame = add_leg_marks(frame, run_phase)
-    elif wing is not None:
-        frame = add_flying_legs(frame)
-    else:
-        frame = add_idle_feet(frame)
-    if wing is not None:
-        frame = add_wing_marks(frame, wing)
-    if fire:
-        frame = add_fire(frame)
-    return frame
-
-
-def make_sheet(src_id, src_path):
-    base = make_base_sprite(src_path)
-    frames = [
-        make_frame(base, 0, 0),
-        make_frame(base, 0, -1, 1.0, 1.02),
-        make_frame(base, -2, 1, 1.02, 0.96, -0.08, run_phase=0),
-        make_frame(base, 1, 0, 0.98, 1.03, 0.05, run_phase=1),
-        make_frame(base, 3, 1, 1.03, 0.96, 0.10, run_phase=2),
-        make_frame(base, 0, -8, 1.04, 0.98, -0.08, wing=True),
-        make_frame(base, 0, -4, 1.02, 1.0, 0.08, wing=False),
-        make_frame(base, 0, -2, 1.02, 1.0, fire=True),
-    ]
-    sheet = Image.new("RGBA", (FRAME * SHEET_COLS, FRAME), (0, 0, 0, 0))
-    for i, frame in enumerate(frames):
-        sheet.alpha_composite(frame, (i * FRAME, 0))
-    out = SPRITES / f"{src_id}_sheet.png"
+def save_sheet(sprite_id, frames):
+    sheet = Image.new("RGBA", (FRAME * COLS, FRAME), (0, 0, 0, 0))
+    for index, frame in enumerate(frames):
+        bbox = frame.getchannel("A").getbbox()
+        if bbox and (bbox[0] <= 1 or bbox[1] <= 1 or bbox[2] >= FRAME - 1 or bbox[3] >= FRAME - 1):
+            raise RuntimeError(f"{sprite_id} frame {index} touches bounds: {bbox}")
+        sheet.alpha_composite(frame, (index * FRAME, 0))
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = OUT_DIR / f"{sprite_id}_sheet.png"
     sheet.save(out)
     return out
 
 
+def write_verification(all_frames):
+    label_h = 18
+    sheet = Image.new("RGBA", (FRAME * COLS, (FRAME + label_h) * len(all_frames)), BG)
+    draw = ImageDraw.Draw(sheet)
+    for row, (name, frames) in enumerate(all_frames):
+        y = row * (FRAME + label_h)
+        draw.text((5, y + 4), name, fill=(255, 230, 154, 255))
+        for col, frame in enumerate(frames):
+            x = col * FRAME
+            if row == 0:
+                draw.text((x + 5, 2), FRAME_LABELS[col], fill=(123, 232, 255, 255))
+            sheet.alpha_composite(frame, (x, y + label_h))
+    sheet.save(VERIFY)
+    print(f"verify={VERIFY}")
+
+
+def main():
+    all_frames = []
+    for stage_index, (sprite_id, filename, name, floor_clip) in enumerate(SOURCES):
+        src_path = SOURCE_ROOT / filename
+        if not src_path.exists():
+            raise FileNotFoundError(src_path)
+        src = normalize_source(src_path)
+        mask = foreground_mask(src, floor_clip)
+        base = fit_cutout(src, mask, stage_index)
+        frames = make_frames(base, stage_index)
+        out = save_sheet(sprite_id, frames)
+        all_frames.append((name, frames))
+        print(f"{sprite_id}: {out} size={(FRAME * COLS, FRAME)} source={filename}")
+    write_verification(all_frames)
+
+
 if __name__ == "__main__":
-    for src_id, src_path in SOURCES:
-        out = make_sheet(src_id, src_path)
-        print(out.relative_to(GAME))
+    main()
