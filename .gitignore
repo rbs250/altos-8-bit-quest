@@ -5,6 +5,8 @@ verification-*.png
 verification-*.gif
 qa-*.png
 qa-*.json
+assets/generated-sources/
+tools/sprite-backups/
 ship.bat
 SHIP.md
 tools/__pycache__/

@@ -57,7 +57,7 @@
   const CHARACTERS = Array.isArray(window.ALTOS_CHARACTERS) && window.ALTOS_CHARACTERS.length
     ? window.ALTOS_CHARACTERS
     : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }];
-  const ASSET_VERSION = "sprites-clean-20260620";
+  const ASSET_VERSION = "gpt2-sprites-20260620";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
