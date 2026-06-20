@@ -57,7 +57,7 @@
   const CHARACTERS = Array.isArray(window.ALTOS_CHARACTERS) && window.ALTOS_CHARACTERS.length
     ? window.ALTOS_CHARACTERS
     : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }];
-  const ASSET_VERSION = "gpt2-sprites-20260620";
+  const ASSET_VERSION = "gpt2-smooth-20260620";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -283,6 +283,10 @@
 
   function clamp(v, min, max) {
     return Math.max(min, Math.min(max, v));
+  }
+
+  function smoothstep(v) {
+    return v * v * (3 - 2 * v);
   }
 
   function rects(a, b) {
@@ -1625,21 +1629,34 @@
     const frameH = character.frameHeight || 160;
     const frameCount = Math.max(1, anim.frames || 1);
     const fps = anim.fps || 8;
-    const rawFrame = Math.floor((state.elapsed || 0) * fps);
+    const frameFloat = (state.elapsed || 0) * fps;
+    const rawFrame = Math.floor(frameFloat);
     const frame = anim.once || state.once ? Math.min(frameCount - 1, rawFrame) : rawFrame % frameCount;
-    const sx = frame * frameW;
+    const canBlend = !(anim.once || state.once) && frameCount > 1 && (state.name === "idle" || state.name === "walk" || state.name === "flight");
+    const blendPhase = frameFloat - rawFrame;
+    const blend = canBlend ? smoothstep(clamp((blendPhase - 0.62) / 0.38, 0, 1)) : 0;
+    const nextFrame = (frame + 1) % frameCount;
     const sy = anim.row * frameH;
     const dx = Math.floor(x - size / 2);
     const dy = Math.floor(y - size * visualBottom);
+
+    function drawFrame(frameIndex, alpha) {
+      const srcX = frameIndex * frameW;
+      ctx.globalAlpha = alpha;
+      if (face < 0) {
+        ctx.drawImage(atlas, srcX, sy, frameW, frameH, 0, 0, size, size);
+      } else {
+        ctx.drawImage(atlas, srcX, sy, frameW, frameH, dx, dy, size, size);
+      }
+    }
 
     ctx.save();
     if (face < 0) {
       ctx.translate(dx + size, dy);
       ctx.scale(-1, 1);
-      ctx.drawImage(atlas, sx, sy, frameW, frameH, 0, 0, size, size);
-    } else {
-      ctx.drawImage(atlas, sx, sy, frameW, frameH, dx, dy, size, size);
     }
+    drawFrame(frame, 1 - blend * 0.35);
+    if (blend > 0) drawFrame(nextFrame, blend * 0.35);
     ctx.restore();
     return true;
   }
