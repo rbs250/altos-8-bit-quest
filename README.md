@@ -25,9 +25,9 @@ The hatch sequence uses a custom 14-frame transparent 8-bit egg sprite sheet ins
 Dragon sprites:
 
 - Generated sheets live in `assets/sprites/`.
-- Each sheet is 8 frames of 128x128 pixels: `idle1`, `idle2`, `run1`, `run2`, `run3`, `fly1`, `fly2`, `fire`.
-- `assets/sprites/altos_01_sheet.png` through `altos_06_sheet.png` are Altos evolution stages made from the supplied dragon images.
-- `assets/sprites/altos_young_pose_atlas.png` is a full animation atlas for Altos Young with `Idle`, `Attack`, `Hurt`, `Dead`, `Flight`, `Jump`, and `Walk` rows. `characters.js` maps those rows into the game animation system.
+- `assets/sprites/altos_01_atlas.png` through `altos_06_atlas.png` are the playable 160x160 full animation atlases, with `Idle`, `Attack`, `Hurt`, `Dead`, `Flight`, `Jump`, and `Walk` rows.
+- `assets/sprites/altos_01_sheet.png` through `altos_06_sheet.png` are 8-frame 128x128 fallback strips generated from the same cleaned atlas frames.
+- `tools/build_all_atlases.py` rebuilds every atlas from `assets/sprite-source/` with label removal, floor-glow cleanup, fixed per-character scale, and stable bottom anchors.
 - The current character selection screen shows Altos plus silhouette placeholders for future dragons. Add the nephews' and nieces' dragons later as separate selectable characters after their visuals exist.
 
 Deployment:

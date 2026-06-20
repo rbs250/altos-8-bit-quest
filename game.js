@@ -1,4 +1,4 @@
-(() => {
+﻿(() => {
   "use strict";
 
   const canvas = document.getElementById("game");
@@ -57,22 +57,26 @@
   const CHARACTERS = Array.isArray(window.ALTOS_CHARACTERS) && window.ALTOS_CHARACTERS.length
     ? window.ALTOS_CHARACTERS
     : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }];
+  const ASSET_VERSION = "sprites-clean-20260620";
+  function assetUrl(path) {
+    return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
+  }
   const SPRITE_FRAME = 128;
   const EGG_FRAME = 128;
   const EGG_HATCH_FRAMES = 14;
   const spriteSheets = CHARACTERS.map(character => {
     const img = new Image();
-    img.src = character.sheet;
+    img.src = assetUrl(character.sheet);
     return img;
   });
   const spriteAtlases = CHARACTERS.map(character => {
     if (!character.atlas) return null;
     const img = new Image();
-    img.src = character.atlas;
+    img.src = assetUrl(character.atlas);
     return img;
   });
   const eggHatchSheet = new Image();
-  eggHatchSheet.src = "assets/sprites/egg_hatch_sheet.png";
+  eggHatchSheet.src = assetUrl("assets/sprites/egg_hatch_sheet.png");
   const ATTACK_ANIM_TIME = 0.56;
   const HURT_ANIM_TIME = 0.42;
   const JUMP_ANIM_TIME = 0.55;
@@ -188,7 +192,7 @@
       platforms.push({ x, y: GROUND_Y + wave, w: TILE, h: 40, solid: true, ground: true });
     }
 
-    // ledge format: [x, y, w, type?]   — type defaults to "normal"
+    // ledge format: [x, y, w, type?]   â€” type defaults to "normal"
     const ledges = [
       [180, 116, 72],
       [330, 94, 64, "trampoline"],
@@ -367,7 +371,7 @@
             _n(16,A2,0.18), _n(20,A2,0.18), _n(24,A2,0.18), _n(28,A2,0.18),
             _n(32,F2,0.18), _n(36,F2,0.18), _n(40,F2,0.18), _n(44,F2,0.18),
             _n(48,G2,0.18), _n(52,G2,0.18), _n(56,G2,0.18), _n(60,G2,0.18) ]},
-        // Lead — pentatonic hook, 2-bar phrase repeated
+        // Lead â€” pentatonic hook, 2-bar phrase repeated
         { wave: "square", gain: 0.022, notes: [
             _n(0,C5,0.22), _n(2,E5,0.18), _n(4,G5,0.22), _n(6,E5,0.18),
             _n(8,A5,0.30), _n(12,G5,0.18), _n(14,E5,0.18),
@@ -388,7 +392,7 @@
     boss: {
       bpm: 144, steps: 64,
       parts: [
-        // Pulsing bass — every 8th note, A minor
+        // Pulsing bass â€” every 8th note, A minor
         { wave: "sawtooth", gain: 0.030, notes: (() => {
             const arr = []; for (let i = 0; i < 16; i++) arr.push(_n(i*4, A2, 0.20));
             for (let i = 8; i < 16; i++) arr[i] = _n(i*4, F2, 0.20);
@@ -408,7 +412,7 @@
     },
   };
 
-  // One-shot stings — same shape but `loop:false` and we revert to silence.
+  // One-shot stings â€” same shape but `loop:false` and we revert to silence.
   const MUSIC_STINGS = {
     win: {
       bpm: 132, steps: 32, loop: false,
@@ -561,7 +565,7 @@
     mode = MODE.HATCH;
     hatchTimer = 0;
     shake = 7;
-    // Hatch chime — rising arpeggio
+    // Hatch chime â€” rising arpeggio
     [261, 329, 392, 523, 659].forEach((f, i) => setTimeout(() => beep(f, 0.10, "triangle", 0.030, 1.2), i * 80));
 
     eggshell = [];
@@ -630,9 +634,9 @@
       return;
     }
     if (mode === MODE.EGG) {
-      warmth = clamp(warmth - dt * 7, 0, 100);
+      warmth = clamp(warmth - dt * 4.2, 0, 100);
       if ((keys.Enter || keys.Space || keys.up || keys.fire || keys.KeyJ || keys.KeyX) && hatchTimer <= 0) {
-        warmEgg(8);
+        warmEgg(10);
         hatchTimer = 0.12;
       }
       hatchTimer = Math.max(0, hatchTimer - dt);
@@ -1438,7 +1442,7 @@
         rect(x, y, p.w, 3, PAL.grass);
         if ((p.x / TILE) % 4 === 0) rect(x + 2, y - 3, 2, 3, PAL.grass);
       } else if (p.solid === false) {
-        // Crumbled & respawning — show ghost outline
+        // Crumbled & respawning â€” show ghost outline
         const a = 1 - Math.min(1, p.respawnT / 4);
         if (a > 0.05 && (Math.floor(time * 4) % 2 === 0 || p.respawnT < 1)) {
           rect(x, y, p.w, 1, "#4c2f27");
@@ -2062,7 +2066,7 @@
       else if (p.x > 216) chooseCharacter(1);
       else startEgg();
     }
-    else if (mode === MODE.EGG) warmEgg(9);
+    else if (mode === MODE.EGG) warmEgg(12);
     else if (mode === MODE.EVOLVE) mode = MODE.PLAY;
     else if (mode === MODE.PLAY) shootFire();
   }
@@ -2082,7 +2086,7 @@
     if (control === "start") {
       if (mode === MODE.TITLE) startSelect();
       else if (mode === MODE.SELECT) startEgg();
-      else if (mode === MODE.EGG) warmEgg(10);
+      else if (mode === MODE.EGG) warmEgg(14);
       else if (mode === MODE.EVOLVE) mode = MODE.PLAY;
       else if (mode === MODE.PAUSE) mode = prevMode;
       else if (mode === MODE.END) reset();
@@ -2097,7 +2101,7 @@
     }
 
     if (mode === MODE.EGG && (control === "flap" || control === "fire")) {
-      warmEgg(7);
+      warmEgg(14);
     }
   }
 

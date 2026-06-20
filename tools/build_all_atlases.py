@@ -2,6 +2,7 @@
 Also writes a verification grid for visual confirmation."""
 from pathlib import Path
 import sys
+import shutil
 sys.path.insert(0, str(Path(__file__).parent))
 from slice_pose_atlas import slice_atlas
 from PIL import Image, ImageDraw
@@ -32,7 +33,10 @@ def main():
             print(f"MISSING: {src}")
             continue
         out = OUT / f"{sprite_id}_atlas.png"
-        counts, max_f = slice_atlas(src, out)
+        legacy = OUT / f"{sprite_id}_sheet.png" if sprite_id.startswith("altos_") else None
+        counts, max_f, _ = slice_atlas(src, out, legacy_sheet_path=legacy)
+        if sprite_id == "altos_02":
+            shutil.copyfile(out, OUT / "altos_young_pose_atlas.png")
         print(f"{sprite_id} ({label}): {counts}  -> {out.name}")
         summaries.append((sprite_id, label, counts, max_f, out))
 

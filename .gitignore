@@ -1,7 +1,12 @@
 .DS_Store
 Thumbs.db
+desktop.ini
 verification-*.png
 verification-*.gif
+qa-*.png
+qa-*.json
+ship.bat
+SHIP.md
 tools/__pycache__/
 *.pyc
 node_modules/

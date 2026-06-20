@@ -5,13 +5,13 @@ window.ALTOS_CHARACTERS = [
     atlas: "assets/sprites/altos_01_atlas.png",
     frameWidth: 160, frameHeight: 160,
     animations: {
-      idle:   { row: 0, frames: 5, fps: 4 },
-      attack: { row: 1, frames: 5, fps: 11, once: true },
-      hurt:   { row: 2, frames: 3, fps: 8, once: true },
+      idle:   { row: 0, frames: 8, fps: 6 },
+      attack: { row: 1, frames: 6, fps: 11, once: true },
+      hurt:   { row: 2, frames: 4, fps: 9, once: true },
       dead:   { row: 3, frames: 3, fps: 3, once: true },
-      flight: { row: 4, frames: 5, fps: 9 },
+      flight: { row: 4, frames: 7, fps: 9 },
       jump:   { row: 5, frames: 5, fps: 9, once: true },
-      walk:   { row: 6, frames: 6, fps: 10 }
+      walk:   { row: 6, frames: 8, fps: 10 }
     }
   },
   {
@@ -20,13 +20,13 @@ window.ALTOS_CHARACTERS = [
     atlas: "assets/sprites/altos_02_atlas.png",
     frameWidth: 160, frameHeight: 160,
     animations: {
-      idle:   { row: 0, frames: 4, fps: 4 },
-      attack: { row: 1, frames: 5, fps: 11, once: true },
-      hurt:   { row: 2, frames: 3, fps: 8, once: true },
-      dead:   { row: 3, frames: 2, fps: 3, once: true },
+      idle:   { row: 0, frames: 8, fps: 6 },
+      attack: { row: 1, frames: 6, fps: 11, once: true },
+      hurt:   { row: 2, frames: 4, fps: 9, once: true },
+      dead:   { row: 3, frames: 3, fps: 3, once: true },
       flight: { row: 4, frames: 7, fps: 9 },
       jump:   { row: 5, frames: 5, fps: 9, once: true },
-      walk:   { row: 6, frames: 6, fps: 10 }
+      walk:   { row: 6, frames: 8, fps: 10 }
     }
   },
   {
@@ -35,13 +35,13 @@ window.ALTOS_CHARACTERS = [
     atlas: "assets/sprites/altos_03_atlas.png",
     frameWidth: 160, frameHeight: 160,
     animations: {
-      idle:   { row: 0, frames: 4, fps: 4 },
+      idle:   { row: 0, frames: 8, fps: 6 },
       attack: { row: 1, frames: 6, fps: 11, once: true },
-      hurt:   { row: 2, frames: 3, fps: 8, once: true },
-      dead:   { row: 3, frames: 2, fps: 3, once: true },
+      hurt:   { row: 2, frames: 4, fps: 9, once: true },
+      dead:   { row: 3, frames: 3, fps: 3, once: true },
       flight: { row: 4, frames: 7, fps: 9 },
       jump:   { row: 5, frames: 5, fps: 9, once: true },
-      walk:   { row: 6, frames: 6, fps: 10 }
+      walk:   { row: 6, frames: 8, fps: 10 }
     }
   },
   {
@@ -50,13 +50,13 @@ window.ALTOS_CHARACTERS = [
     atlas: "assets/sprites/altos_04_atlas.png",
     frameWidth: 160, frameHeight: 160,
     animations: {
-      idle:   { row: 0, frames: 4, fps: 4 },
-      attack: { row: 1, frames: 5, fps: 11, once: true },
-      hurt:   { row: 2, frames: 4, fps: 8, once: true },
-      dead:   { row: 3, frames: 2, fps: 3, once: true },
-      flight: { row: 4, frames: 5, fps: 9 },
-      jump:   { row: 5, frames: 4, fps: 9, once: true },
-      walk:   { row: 6, frames: 5, fps: 10 }
+      idle:   { row: 0, frames: 8, fps: 6 },
+      attack: { row: 1, frames: 6, fps: 11, once: true },
+      hurt:   { row: 2, frames: 4, fps: 9, once: true },
+      dead:   { row: 3, frames: 3, fps: 3, once: true },
+      flight: { row: 4, frames: 7, fps: 9 },
+      jump:   { row: 5, frames: 5, fps: 9, once: true },
+      walk:   { row: 6, frames: 8, fps: 10 }
     }
   },
   {
@@ -65,13 +65,13 @@ window.ALTOS_CHARACTERS = [
     atlas: "assets/sprites/altos_05_atlas.png",
     frameWidth: 160, frameHeight: 160,
     animations: {
-      idle:   { row: 0, frames: 4, fps: 4 },
+      idle:   { row: 0, frames: 8, fps: 6 },
       attack: { row: 1, frames: 6, fps: 11, once: true },
-      hurt:   { row: 2, frames: 3, fps: 8, once: true },
-      dead:   { row: 3, frames: 2, fps: 3, once: true },
+      hurt:   { row: 2, frames: 4, fps: 9, once: true },
+      dead:   { row: 3, frames: 3, fps: 3, once: true },
       flight: { row: 4, frames: 7, fps: 9 },
       jump:   { row: 5, frames: 5, fps: 9, once: true },
-      walk:   { row: 6, frames: 6, fps: 10 }
+      walk:   { row: 6, frames: 8, fps: 10 }
     }
   },
   {
@@ -80,13 +80,13 @@ window.ALTOS_CHARACTERS = [
     atlas: "assets/sprites/altos_06_atlas.png",
     frameWidth: 160, frameHeight: 160,
     animations: {
-      idle:   { row: 0, frames: 4, fps: 4 },
+      idle:   { row: 0, frames: 8, fps: 6 },
       attack: { row: 1, frames: 6, fps: 11, once: true },
-      hurt:   { row: 2, frames: 6, fps: 8, once: true },
-      dead:   { row: 2, frames: 1, fps: 3, once: true },
+      hurt:   { row: 2, frames: 4, fps: 9, once: true },
+      dead:   { row: 3, frames: 3, fps: 3, once: true },
       flight: { row: 4, frames: 7, fps: 9 },
       jump:   { row: 5, frames: 5, fps: 9, once: true },
-      walk:   { row: 6, frames: 6, fps: 10 }
+      walk:   { row: 6, frames: 8, fps: 10 }
     }
   }
 ];
