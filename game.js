@@ -14,6 +14,8 @@
   const GRAVITY = 560;
   const LEVEL_W = 3200;
   const GROUND_Y = 150;
+  const FLIGHT_CEILING_Y = -500;
+  const CAMERA_TOP_Y = -600;
   const PLATFORM_SPRING = 88;
   const PLATFORM_DAMPING = 15;
 
@@ -57,11 +59,14 @@
   const CHARACTERS = Array.isArray(window.ALTOS_CHARACTERS) && window.ALTOS_CHARACTERS.length
     ? window.ALTOS_CHARACTERS
     : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }];
-  const ASSET_VERSION = "gpt2-smooth-20260620";
+  const ASSET_VERSION = "gpt2-fire-flight-20260622";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
   const SPRITE_FRAME = 128;
+  const FIRE_FRAME_W = 64;
+  const FIRE_FRAME_H = 64;
+  const FIRE_FRAMES = 8;
   const EGG_FRAME = 128;
   const EGG_HATCH_FRAMES = 14;
   const spriteSheets = CHARACTERS.map(character => {
@@ -77,6 +82,8 @@
   });
   const eggHatchSheet = new Image();
   eggHatchSheet.src = assetUrl("assets/sprites/egg_hatch_sheet.png");
+  const fireSheet = new Image();
+  fireSheet.src = assetUrl("assets/sprites/fire_breath_sheet.png");
   const ATTACK_ANIM_TIME = 0.56;
   const HURT_ANIM_TIME = 0.42;
   const JUMP_ANIM_TIME = 0.55;
@@ -100,6 +107,7 @@
   let accumulator = 0;
   let audio = null;
   let cameraX = 0;
+  let cameraY = 0;
   let shake = 0;
   let freeze = 0;
   let time = 0;
@@ -148,6 +156,7 @@
     mode = MODE.TITLE;
     prevMode = MODE.TITLE;
     cameraX = 0;
+    cameraY = 0;
     shake = 0;
     freeze = 0;
     time = 0;
@@ -231,6 +240,11 @@
       const x = 130 + i * 64 + ((i * 37) % 29);
       const y = 58 + ((i * 47) % 74);
       shards.push({ x, y, got: false, bob: i * 0.65 });
+    }
+    for (let i = 0; i < 24; i += 1) {
+      const x = 240 + i * 116 + ((i * 41) % 35);
+      const y = -45 - ((i * 67) % 390);
+      shards.push({ x, y, got: false, bob: 4 + i * 0.72 });
     }
 
     // Enemies: ground-patrolling drakes + flying wisps
@@ -604,6 +618,7 @@
     player.jumpAnim = 0;
     player.deadAnim = 0;
     cameraX = 0;
+    cameraY = 0;
     addText(selectedName() + "!", player.x, player.y - 16, PAL.gold2);
   }
 
@@ -681,6 +696,7 @@
     updateBossFires(dt);
     updateHazards(dt);
     cameraX = clamp(Math.round(player.x - 92), 0, LEVEL_W - W);
+    cameraY = clamp(Math.round(player.y - 88), CAMERA_TOP_Y, 0);
   }
 
   function warmEgg(amount) {
@@ -699,33 +715,34 @@
     const axis = (right ? 1 : 0) - (left ? 1 : 0);
 
     if (axis) player.face = axis;
-    const accel = player.ground ? 650 : 410;
-    const max = 88 + player.stage * 12;
+    const accel = player.ground ? 650 : 520;
+    const max = 98 + player.stage * 14;
     player.vx += axis * accel * dt;
     if (!axis) player.vx *= player.ground ? 0.78 : 0.95;
     player.vx = clamp(player.vx, -max, max);
 
     if (flap && !flapHeld && player.stamina > 0.05) {
       player.vy = Math.min(player.vy, 0);
-      player.vy -= player.ground ? 132 : 92;
+      player.vy -= player.ground ? 152 : 118;
       player.ground = false;
       player.jumpAnim = JUMP_ANIM_TIME;
-      player.stamina = clamp(player.stamina - 0.05, 0, 1);
+      player.stamina = clamp(player.stamina - 0.04, 0, 1);
       shake = Math.max(shake, 1.4);
       addDust(player.x + 12, player.y + 18, 8, PAL.blue2);
       beep(260, 0.055, "triangle", 0.025, 1.22);
     }
     if (flap && player.stamina > 0.015) {
-      player.vy -= 410 * dt;
+      player.vy -= 540 * dt;
       player.ground = false;
-      player.stamina = clamp(player.stamina - dt * 0.075, 0, 1);
+      player.stamina = clamp(player.stamina - dt * 0.11, 0, 1);
       if (Math.random() > 0.62) addDust(player.x + 12, player.y + 18, 1, PAL.blue2);
     }
     flapHeld = !!flap;
-    if (down) player.vy += 240 * dt;
+    if (down) player.vy += 300 * dt;
 
-    player.vy += GRAVITY * dt;
-    player.vy = clamp(player.vy, -185, 220);
+    player.vy += (flap ? 470 : GRAVITY) * dt;
+    if (!player.ground && !flap && !down && player.vy > 30) player.vy -= 115 * dt;
+    player.vy = clamp(player.vy, -265, 245);
 
     player.x += player.vx * dt;
     collideX();
@@ -734,9 +751,9 @@
     collideY(prevY);
 
     player.x = clamp(player.x, 2, LEVEL_W - 36);
-    if (player.y < 22) {
-      player.y = 22;
-      player.vy = Math.max(0, player.vy);
+    if (player.y < FLIGHT_CEILING_Y) {
+      player.y = FLIGHT_CEILING_Y;
+      player.vy = Math.max(20, player.vy);
     }
     if (player.y > H + 40) {
       hurt();
@@ -745,8 +762,8 @@
       player.vy = 0;
     }
 
-    if (player.ground) player.stamina = clamp(player.stamina + dt * 0.65, 0, 1);
-    else player.stamina = clamp(player.stamina + dt * 0.18, 0, 1);
+    if (player.ground) player.stamina = clamp(player.stamina + dt * 0.75, 0, 1);
+    else player.stamina = clamp(player.stamina + dt * 0.13, 0, 1);
 
     if (fire && fireCooldown <= 0 && player.stamina > 0.09) {
       shootFire();
@@ -834,21 +851,43 @@
     p.sinkVel += fromBelow ? -force : force;
   }
 
+  function playerMouthPoint() {
+    const size = 80 + Math.min(player.stage, 5) * 5;
+    const flying = !player.ground;
+    const bob = flying ? Math.round(Math.sin(time * 14) * 2) : 0;
+    const anchorX = player.x + player.w / 2;
+    const anchorY = player.y + player.h + bob;
+    return {
+      x: anchorX + player.face * size * 0.38,
+      y: anchorY - size * (flying ? 0.63 : 0.66)
+    };
+  }
+
+  function fireBox(f) {
+    return { x: f.x - f.w / 2, y: f.y - f.h / 2, w: f.w, h: f.h };
+  }
+
   function shootFire() {
-    fireCooldown = 0.18 - player.stage * 0.02;
-    const fx = player.x + (player.face > 0 ? 25 : 1);
-    const fy = player.y + 8;
+    fireCooldown = Math.max(0.08, 0.16 - player.stage * 0.015);
+    const mouth = playerMouthPoint();
+    const w = 22 + player.stage * 5;
+    const h = 14 + player.stage * 2;
+    const fx = mouth.x + player.face * (w * 0.46);
+    const fy = mouth.y;
     fires.push({
       x: fx,
       y: fy,
-      vx: player.face * (160 + player.stage * 30),
-      life: 0.55,
-      w: 12 + player.stage * 4,
-      h: 6 + player.stage
+      vx: player.face * (215 + player.stage * 35),
+      vy: clamp(player.vy * 0.12, -28, 28),
+      age: 0,
+      life: 0.62,
+      dir: player.face,
+      w,
+      h
     });
     player.fireFlash = 0.18;
     player.attackAnim = ATTACK_ANIM_TIME;
-    addDust(fx, fy, 5, PAL.red2);
+    addDust(mouth.x, mouth.y, 5, PAL.red2);
     beep(96, 0.08, "sawtooth", 0.032, 0.55);
   }
 
@@ -892,7 +931,7 @@
       if (rects(pbox, enemyBox(e))) hurt();
       for (let j = fires.length - 1; j >= 0; j -= 1) {
         const f = fires[j];
-        const fbox = { x: f.x, y: f.y - 2, w: f.w, h: f.h + 4 };
+        const fbox = fireBox(f);
         if (rects(fbox, enemyBox(e))) {
           fires.splice(j, 1);
           e.hp -= 1;
@@ -960,7 +999,7 @@
     if (rects(bbox, pbox)) hurt();
     for (let j = fires.length - 1; j >= 0; j -= 1) {
       const f = fires[j];
-      const fbox = { x: f.x, y: f.y - 2, w: f.w, h: f.h + 4 };
+      const fbox = fireBox(f);
       if (rects(fbox, bbox)) {
         fires.splice(j, 1);
         boss.hp -= 1;
@@ -1017,8 +1056,10 @@
     for (let i = fires.length - 1; i >= 0; i -= 1) {
       const f = fires[i];
       f.life -= dt;
+      f.age += dt;
       f.x += f.vx * dt;
-      if (f.life <= 0 || f.x < cameraX - 32 || f.x > cameraX + W + 32) {
+      f.y += (f.vy || 0) * dt;
+      if (f.life <= 0 || f.x < cameraX - 42 || f.x > cameraX + W + 42 || f.y < cameraY - 42 || f.y > cameraY + H + 42) {
         fires.splice(i, 1);
       } else if (Math.random() > 0.5) {
         addDust(f.x, f.y, 1, Math.random() > 0.5 ? PAL.red2 : PAL.gold2);
@@ -1293,14 +1334,14 @@
   }
 
   function drawPlay() {
-    drawSky(cameraX);
+    drawSky(cameraX, cameraY);
     drawWorld();
     drawShards();
     drawEnemies();
     drawBoss();
     drawBossFires();
     drawFires();
-    drawDragonSprite(player.x - cameraX, player.y, player.stage, player.face, !player.ground);
+    drawDragonSprite(player.x - cameraX, player.y - cameraY, player.stage, player.face, !player.ground);
     drawParticlesWorld();
     drawHud();
     drawBossBar();
@@ -1311,7 +1352,7 @@
     for (const e of enemies) {
       const x = Math.floor(e.x - cameraX);
       if (x < -20 || x > W + 20) continue;
-      const y = Math.floor(e.y);
+      const y = Math.floor(e.y - cameraY);
       const flash = e.hurt > 0 && Math.floor(e.t * 60) % 2 === 0;
       const alpha = e.dead ? Math.max(0, e.dying / 0.45) : 1;
       ctx.save();
@@ -1352,7 +1393,7 @@
     if (!boss) return;
     const x = Math.floor(boss.x - cameraX);
     if (x < -boss.w * 2 || x > W + boss.w) return;
-    const y = Math.floor(boss.y);
+    const y = Math.floor(boss.y - cameraY);
     const flash = boss.hurt > 0 && Math.floor(boss.t * 40) % 2 === 0;
     const alpha = boss.dead ? Math.max(0, boss.dying / 1.4) : 1;
     ctx.save();
@@ -1384,7 +1425,7 @@
   function drawBossFires() {
     for (const f of bossFires) {
       const x = Math.floor(f.x - cameraX);
-      const y = Math.floor(f.y);
+      const y = Math.floor(f.y - cameraY);
       if (x < -16 || x > W + 16) continue;
       rect(x - 5, y - 4, 10, 8, PAL.red);
       rect(x - 4, y - 3, 8, 6, PAL.red2);
@@ -1405,18 +1446,21 @@
     text("ANCIENT", x, y - 9, PAL.red, 1);
   }
 
-  function drawSky(cam) {
+  function drawSky(cam, camY = 0) {
+    const altitude = Math.max(0, -camY);
     clear(PAL.night);
     for (const s of stars) {
       const x = Math.floor((s.x - cam * 0.08 + W * 4) % W);
-      rect(x, s.y, 1, 1, s.c);
+      const y = Math.floor((s.y + altitude * 0.08) % H);
+      rect(x, y, 1, 1, s.c);
     }
-    rect(250 - (cam * 0.05) % 420, 20, 10, 10, PAL.gold2);
-    rect(252 - (cam * 0.05) % 420, 18, 6, 14, PAL.gold2);
-    rect(246 - (cam * 0.05) % 420, 24, 18, 2, PAL.gold2);
-    drawCloud(44 - (cam * 0.16) % 420, 44);
-    drawCloud(180 - (cam * 0.13) % 420, 30);
-    drawMountains(cam);
+    const moonY = 20 + altitude * 0.10;
+    rect(250 - (cam * 0.05) % 420, moonY, 10, 10, PAL.gold2);
+    rect(252 - (cam * 0.05) % 420, moonY - 2, 6, 14, PAL.gold2);
+    rect(246 - (cam * 0.05) % 420, moonY + 4, 18, 2, PAL.gold2);
+    drawCloud(44 - (cam * 0.16) % 420, 44 + altitude * 0.18);
+    drawCloud(180 - (cam * 0.13) % 420, 30 + altitude * 0.14);
+    drawMountains(cam, altitude);
   }
 
   function drawCloud(x, y) {
@@ -1427,8 +1471,8 @@
     }
   }
 
-  function drawMountains(cam) {
-    const base = 120;
+  function drawMountains(cam, altitude = 0) {
+    const base = 120 + altitude * 0.32;
     for (let i = -1; i < 8; i += 1) {
       const x = i * 72 - Math.floor((cam * 0.28) % 72);
       tri(x, base, x + 36, 70 + (i % 2) * 14, x + 76, base, PAL.mountain);
@@ -1440,9 +1484,10 @@
     for (const p of platforms) {
       const x = Math.floor(p.x - cameraX);
       if (x < -p.w || x > W) continue;
-      const y = platformDrawY(p);
+      const y = platformDrawY(p) - cameraY;
+      if (y < -32 || y > H + 48) continue;
       if (p.ground) {
-        rect(x, y, p.w, H - y, PAL.darkGrass);
+        rect(x, y, p.w, Math.max(0, H - y), PAL.darkGrass);
         rect(x, y, p.w, 3, PAL.grass);
         if ((p.x / TILE) % 4 === 0) rect(x + 2, y - 3, 2, 3, PAL.grass);
       } else if (p.solid === false) {
@@ -1501,7 +1546,7 @@
       const wx = i * 82 + 18;
       const x = Math.floor(wx - cameraX);
       if (x < -20 || x > W + 20) continue;
-      drawCrystal(x, 135 + Math.sin(wx * 0.04) * 8);
+      drawCrystal(x, 135 + Math.sin(wx * 0.04) * 8 - cameraY);
     }
   }
 
@@ -1509,7 +1554,8 @@
     for (const h of hazards) {
       const x = Math.floor(h.x - cameraX);
       if (x < -h.w || x > W) continue;
-      const y = Math.floor(h.y);
+      const y = Math.floor(h.y - cameraY);
+      if (y < -16 || y > H + 16) continue;
       // Base / mount
       rect(x, y + h.h - 2, h.w, 2, "#3a2814");
       // Spikes
@@ -1540,8 +1586,8 @@
     for (const s of shards) {
       if (s.got) continue;
       const x = Math.floor(s.x - cameraX);
-      const y = Math.floor(s.y + Math.sin(time * 4 + s.bob) * 4);
-      if (x < -12 || x > W + 12) continue;
+      const y = Math.floor(s.y + Math.sin(time * 4 + s.bob) * 4 - cameraY);
+      if (x < -12 || x > W + 12 || y < -16 || y > H + 16) continue;
       rect(x - 3, y - 6, 6, 12, PAL.gold2);
       rect(x - 6, y - 2, 12, 4, PAL.gold);
       rect(x - 2, y - 3, 4, 6, PAL.white);
@@ -1551,10 +1597,26 @@
   function drawFires() {
     for (const f of fires) {
       const x = Math.floor(f.x - cameraX);
-      const y = Math.floor(f.y);
-      rect(x, y - 2, f.w, f.h + 4, PAL.red);
-      rect(x + (f.vx > 0 ? 2 : -2), y, f.w - 2, f.h, PAL.red2);
-      rect(x + (f.vx > 0 ? 6 : -6), y + 1, Math.max(3, f.w - 9), 3, PAL.gold2);
+      const y = Math.floor(f.y - cameraY);
+      if (fireSheet.complete && fireSheet.naturalWidth > 0) {
+        const frame = Math.floor((f.age || 0) * 18) % FIRE_FRAMES;
+        const sx = frame * FIRE_FRAME_W;
+        const dx = Math.floor(x - f.w / 2);
+        const dy = Math.floor(y - f.h / 2);
+        ctx.save();
+        if ((f.dir || 1) < 0) {
+          ctx.translate(dx + f.w, dy);
+          ctx.scale(-1, 1);
+          ctx.drawImage(fireSheet, sx, 0, FIRE_FRAME_W, FIRE_FRAME_H, 0, 0, f.w, f.h);
+        } else {
+          ctx.drawImage(fireSheet, sx, 0, FIRE_FRAME_W, FIRE_FRAME_H, dx, dy, f.w, f.h);
+        }
+        ctx.restore();
+      } else {
+        rect(x - f.w / 2, y - f.h / 2 - 2, f.w, f.h + 4, PAL.red);
+        rect(x - f.w / 2 + ((f.dir || 1) > 0 ? 2 : -2), y - f.h / 2, f.w - 2, f.h, PAL.red2);
+        rect(x - f.w / 2 + ((f.dir || 1) > 0 ? 6 : -6), y - 1, Math.max(3, f.w - 9), 3, PAL.gold2);
+      }
     }
   }
 
@@ -1911,10 +1973,10 @@
 
   function drawParticlesWorld() {
     for (const p of particles) {
-      rect(p.x - cameraX, p.y, p.s, p.s, p.c);
+      rect(p.x - cameraX, p.y - cameraY, p.s, p.s, p.c);
     }
     for (const t of floatText) {
-      text(t.text, t.x - cameraX, t.y, t.c, 1);
+      text(t.text, t.x - cameraX, t.y - cameraY, t.c, 1);
     }
   }
 
