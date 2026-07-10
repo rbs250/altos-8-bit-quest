@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "grow-lava-20260708";
+  const ASSET_VERSION = "art-full-20260711";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -89,6 +89,35 @@
   }
   function imgReady(img) {
     return img && img.complete && img.naturalWidth > 0;
+  }
+
+  function drawTiledAsset(img, x, y, w, h) {
+    if (!imgReady(img) || w <= 0 || h <= 0) return false;
+    const iw = img.naturalWidth;
+    const ih = img.naturalHeight;
+    for (let yy = 0; yy < h; yy += ih) {
+      for (let xx = 0; xx < w; xx += iw) {
+        ctx.drawImage(img, 0, 0, iw, ih, Math.floor(x + xx), Math.floor(y + yy), Math.min(iw, w - xx), Math.min(ih, h - yy));
+      }
+    }
+    return true;
+  }
+
+  function drawFittedAsset(img, x, y, w, h) {
+    if (!imgReady(img) || w <= 0 || h <= 0) return false;
+    ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, Math.floor(x), Math.floor(y), Math.ceil(w), Math.ceil(h));
+    return true;
+  }
+
+  function drawParallaxStrip(img, offsetX, y) {
+    if (!imgReady(img)) return false;
+    const iw = img.naturalWidth;
+    let x = -((Math.floor(offsetX) % iw) + iw) % iw - iw;
+    while (x < W) {
+      ctx.drawImage(img, Math.floor(x), Math.floor(y));
+      x += iw;
+    }
+    return true;
   }
 
   let unlocks = (() => {
@@ -127,6 +156,24 @@
 
   const fireSheet = new Image();
   fireSheet.src = assetUrl("assets/sprites/fire_breath_sheet.png");
+  const art = {
+    far: loadImg("assets/bg/far.png"),
+    mid: loadImg("assets/bg/mid.png"),
+    near: loadImg("assets/bg/near.png"),
+    ground: loadImg("assets/tiles/tile_ground.png"),
+    normal: loadImg("assets/tiles/ledge_normal.png"),
+    trampoline: loadImg("assets/tiles/ledge_trampoline.png"),
+    crumble: loadImg("assets/tiles/ledge_crumble.png"),
+    spiketop: loadImg("assets/tiles/ledge_spiketop.png"),
+    hazard: loadImg("assets/tiles/hazard_spike.png"),
+    gem: loadImg("assets/sprites/gem.png"),
+    heart: loadImg("assets/sprites/heart.png"),
+    pearl: loadImg("assets/sprites/powerup_pearl.png"),
+    soul: loadImg("assets/sprites/soul_orb.png"),
+    enemyDrake: loadImg("assets/sprites/enemy_drake.png"),
+    enemyWisp: loadImg("assets/sprites/enemy_wisp.png"),
+    boss: loadImg("assets/sprites/ancient_boss.png")
+  };
   const ATTACK_ANIM_TIME = 0.56;
   const HURT_ANIM_TIME = 0.42;
   const JUMP_ANIM_TIME = 0.55;
@@ -1886,6 +1933,23 @@
         ctx.restore();
         continue;
       }
+      const enemySprite = e.type === "drake" ? art.enemyDrake : art.enemyWisp;
+      if (imgReady(enemySprite)) {
+        const size = e.type === "drake" ? 32 : 30;
+        const dx = Math.floor(x - size / 2);
+        const dy = e.type === "drake" ? Math.floor(y - size) : Math.floor(y - size / 2);
+        ctx.filter = flash ? "brightness(2.4)" : "none";
+        if (e.type === "drake" && e.vx < 0) {
+          ctx.translate(dx + size, dy);
+          ctx.scale(-1, 1);
+          ctx.drawImage(enemySprite, 0, 0, enemySprite.naturalWidth, enemySprite.naturalHeight, 0, 0, size, size);
+        } else {
+          ctx.drawImage(enemySprite, 0, 0, enemySprite.naturalWidth, enemySprite.naturalHeight, dx, dy, size, size);
+        }
+        ctx.filter = "none";
+        ctx.restore();
+        continue;
+      }
       if (e.type === "drake") {
         const bodyA = flash ? PAL.white : "#3a1f4a";
         const bodyB = flash ? PAL.white : "#5b3070";
@@ -1927,6 +1991,24 @@
     const alpha = boss.dead ? Math.max(0, boss.dying / 1.4) : 1;
     ctx.save();
     ctx.globalAlpha = alpha;
+    if (imgReady(art.boss)) {
+      const drawW = 88;
+      const drawH = 74;
+      const dx = Math.floor(x - drawW / 2);
+      const dy = Math.floor(y - 70);
+      const facing = boss.x > player.x ? -1 : 1;
+      ctx.filter = flash ? "brightness(2.2)" : "none";
+      if (facing < 0) {
+        ctx.translate(dx + drawW, dy);
+        ctx.scale(-1, 1);
+        ctx.drawImage(art.boss, 0, 0, art.boss.naturalWidth, art.boss.naturalHeight, 0, 0, drawW, drawH);
+      } else {
+        ctx.drawImage(art.boss, 0, 0, art.boss.naturalWidth, art.boss.naturalHeight, dx, dy, drawW, drawH);
+      }
+      ctx.filter = "none";
+      ctx.restore();
+      return;
+    }
     const main = flash ? PAL.white : "#241038";
     const accent = flash ? PAL.white : "#5d2a82";
     const eye = flash ? PAL.white : (boss.fireCD < 0.35 ? PAL.gold2 : PAL.red);
@@ -1978,15 +2060,31 @@
 
   function drawSky(cam, camY = 0) {
     const altitude = Math.max(0, -camY);
+    const hasFar = imgReady(art.far);
+    const hasMid = imgReady(art.mid);
+    const hasNear = imgReady(art.near);
+
+    if (hasFar) {
+      clear(PAL.black);
+      // The far layer is the guaranteed opaque base. Drawing one full logical
+      // screen prevents transparent parallax layers or wrap offsets from ever
+      // exposing the canvas clear color between tiles.
+      ctx.drawImage(art.far, 0, 0, art.far.naturalWidth, art.far.naturalHeight, 0, 0, W, H);
+      if (hasMid) drawParallaxStrip(art.mid, cam * 0.20, Math.floor(altitude * 0.28));
+      if (hasNear) drawParallaxStrip(art.near, cam * 0.38, Math.floor(18 + altitude * 0.36));
+    }
+
     // Vertical gradient: deep space up top, softer indigo at the horizon.
     // Flying higher pushes the bands down so the sky darkens with altitude.
     // Painted darkest-last-on-top so there are no gaps at any altitude.
-    const bands = ["#0b1026", "#101736", "#141e42", "#18264e", "#1c2c58"];
-    const bandH = Math.ceil(H / bands.length);
-    const shift = Math.floor(altitude * 0.05);
-    clear(bands[bands.length - 1]);
-    for (let i = bands.length - 2; i >= 0; i -= 1) {
-      rect(0, 0, W, (i + 1) * bandH + shift, bands[i]);
+    if (!hasFar) {
+      const bands = ["#0b1026", "#101736", "#141e42", "#18264e", "#1c2c58"];
+      const bandH = Math.ceil(H / bands.length);
+      const shift = Math.floor(altitude * 0.05);
+      clear(bands[bands.length - 1]);
+      for (let i = bands.length - 2; i >= 0; i -= 1) {
+        rect(0, 0, W, (i + 1) * bandH + shift, bands[i]);
+      }
     }
 
     for (const s of stars) {
@@ -2014,24 +2112,26 @@
       ctx.restore();
     }
 
-    const mx = 250 - (cam * 0.05) % 420;
-    const moonY = 20 + altitude * 0.10;
-    // Soft glow: cross-stacked translucent rects approximate a round halo
-    ctx.save();
-    ctx.globalAlpha = 0.03;
-    rect(mx - 9, moonY - 3, 28, 20, PAL.gold2);
-    rect(mx - 3, moonY - 9, 16, 32, PAL.gold2);
-    ctx.globalAlpha = 0.07;
-    rect(mx - 4, moonY - 3, 18, 18, PAL.gold2);
-    ctx.restore();
-    rect(mx, moonY, 10, 10, PAL.gold2);
-    rect(mx + 2, moonY - 2, 6, 14, PAL.gold2);
-    rect(mx - 4, moonY + 4, 18, 2, PAL.gold2);
+    if (!hasFar) {
+      const mx = 250 - (cam * 0.05) % 420;
+      const moonY = 20 + altitude * 0.10;
+      // Soft glow: cross-stacked translucent rects approximate a round halo
+      ctx.save();
+      ctx.globalAlpha = 0.03;
+      rect(mx - 9, moonY - 3, 28, 20, PAL.gold2);
+      rect(mx - 3, moonY - 9, 16, 32, PAL.gold2);
+      ctx.globalAlpha = 0.07;
+      rect(mx - 4, moonY - 3, 18, 18, PAL.gold2);
+      ctx.restore();
+      rect(mx, moonY, 10, 10, PAL.gold2);
+      rect(mx + 2, moonY - 2, 6, 14, PAL.gold2);
+      rect(mx - 4, moonY + 4, 18, 2, PAL.gold2);
 
-    drawCloud(300 - (cam * 0.10) % 420, 58 + altitude * 0.12);
-    drawCloud(44 - (cam * 0.16) % 420, 44 + altitude * 0.18);
-    drawCloud(180 - (cam * 0.13) % 420, 30 + altitude * 0.14);
-    drawMountains(cam, altitude);
+      drawCloud(300 - (cam * 0.10) % 420, 58 + altitude * 0.12);
+      drawCloud(44 - (cam * 0.16) % 420, 44 + altitude * 0.18);
+      drawCloud(180 - (cam * 0.13) % 420, 30 + altitude * 0.14);
+    }
+    if (!hasMid) drawMountains(cam, altitude);
   }
 
   function drawCloud(x, y) {
@@ -2070,9 +2170,11 @@
       const y = platformDrawY(p) - cameraY;
       if (y < -32 || y > H + 48) continue;
       if (p.ground) {
-        rect(x, y, p.w, Math.max(0, H - y), PAL.darkGrass);
-        rect(x, y, p.w, 3, PAL.grass);
-        if ((p.x / TILE) % 4 === 0) rect(x + 2, y - 3, 2, 3, PAL.grass);
+        if (!drawTiledAsset(art.ground, x, y, p.w, Math.max(0, H - y))) {
+          rect(x, y, p.w, Math.max(0, H - y), PAL.darkGrass);
+          rect(x, y, p.w, 3, PAL.grass);
+          if ((p.x / TILE) % 4 === 0) rect(x + 2, y - 3, 2, 3, PAL.grass);
+        }
       } else if (p.solid === false) {
         // Crumbled & respawning â€” show ghost outline
         const a = 1 - Math.min(1, p.respawnT / 4);
@@ -2082,46 +2184,54 @@
           for (let tx = 4; tx < p.w; tx += 10) rect(x + tx, y + 3, 2, 2, "#7b4b2c");
         }
       } else if (p.type === "trampoline") {
-        // Compress visually based on sink (deeper sink = more compressed coil)
-        const compress = Math.max(0, p.sink || 0);
-        rect(x, y + compress, p.w, 4, "#ff5e87");        // bumper top
-        rect(x, y + 4 + compress, p.w, 2, "#ff8aa8");
-        // springs (zigzag between top and base)
-        for (let tx = 2; tx < p.w; tx += 8) {
-          rect(x + tx, y + 6 + compress, 2, p.h - 6 - compress, PAL.gold);
-          rect(x + tx + 4, y + 6 + compress, 2, p.h - 6 - compress, "#b8771b");
+        if (!drawFittedAsset(art.trampoline, x, y, p.w, Math.max(12, p.h + 4))) {
+          // Compress visually based on sink (deeper sink = more compressed coil)
+          const compress = Math.max(0, p.sink || 0);
+          rect(x, y + compress, p.w, 4, "#ff5e87");        // bumper top
+          rect(x, y + 4 + compress, p.w, 2, "#ff8aa8");
+          // springs (zigzag between top and base)
+          for (let tx = 2; tx < p.w; tx += 8) {
+            rect(x + tx, y + 6 + compress, 2, p.h - 6 - compress, PAL.gold);
+            rect(x + tx + 4, y + 6 + compress, 2, p.h - 6 - compress, "#b8771b");
+          }
+          rect(x, y + p.h, p.w, 1, "#4c2f27");
         }
-        rect(x, y + p.h, p.w, 1, "#4c2f27");
       } else if (p.type === "spiketop") {
-        // Wood platform with spike strip on top
-        rect(x, y + 2, p.w, p.h - 2, "#7b4b2c");
-        rect(x, y + p.h - 1, p.w, 1, "#4c2f27");
-        // spikes
-        const flash = (Math.floor(time * 4) % 2 === 0) ? "#d8d4e4" : "#f0eaff";
-        for (let tx = 0; tx < p.w; tx += 6) {
-          rect(x + tx,     y - 3, 6, 3, "#5c5870");
-          rect(x + tx + 2, y - 5, 2, 5, flash);
+        if (!drawFittedAsset(art.spiketop, x, y - 2, p.w, Math.max(12, p.h + 5))) {
+          // Wood platform with spike strip on top
+          rect(x, y + 2, p.w, p.h - 2, "#7b4b2c");
+          rect(x, y + p.h - 1, p.w, 1, "#4c2f27");
+          // spikes
+          const flash = (Math.floor(time * 4) % 2 === 0) ? "#d8d4e4" : "#f0eaff";
+          for (let tx = 0; tx < p.w; tx += 6) {
+            rect(x + tx,     y - 3, 6, 3, "#5c5870");
+            rect(x + tx + 2, y - 5, 2, 5, flash);
+          }
         }
       } else if (p.type === "crumble") {
-        // Brown plank with cracks, shakes when crumbleT > 0
-        const sx = (p.crumbleT > 0) ? Math.round((Math.random() - 0.5) * 2) : 0;
-        rect(x + sx, y, p.w, p.h, "#8a5a2a");
-        rect(x + sx, y + 2, p.w, p.h - 2, "#5e3a18");
-        rect(x + sx, y + p.h, p.w, 1, "#3a2410");
-        // crack lines
-        for (let tx = 6; tx < p.w; tx += 14) {
-          rect(x + tx + sx, y + 1, 1, p.h - 2, "#3a2410");
-          rect(x + tx + 4 + sx, y + 3, 1, 2, "#3a2410");
-        }
-        // warning glow when crumbling
-        if (p.crumbleT > 0 && Math.floor(time * 16) % 2 === 0) {
-          rect(x + sx, y - 1, p.w, 1, PAL.red);
+        if (!drawFittedAsset(art.crumble, x, y, p.w, Math.max(12, p.h + 4))) {
+          // Brown plank with cracks, shakes when crumbleT > 0
+          const sx = (p.crumbleT > 0) ? Math.round((Math.random() - 0.5) * 2) : 0;
+          rect(x + sx, y, p.w, p.h, "#8a5a2a");
+          rect(x + sx, y + 2, p.w, p.h - 2, "#5e3a18");
+          rect(x + sx, y + p.h, p.w, 1, "#3a2410");
+          // crack lines
+          for (let tx = 6; tx < p.w; tx += 14) {
+            rect(x + tx + sx, y + 1, 1, p.h - 2, "#3a2410");
+            rect(x + tx + 4 + sx, y + 3, 1, 2, "#3a2410");
+          }
+          // warning glow when crumbling
+          if (p.crumbleT > 0 && Math.floor(time * 16) % 2 === 0) {
+            rect(x + sx, y - 1, p.w, 1, PAL.red);
+          }
         }
       } else {
-        rect(x, y, p.w, p.h, PAL.gold);
-        rect(x, y + 2, p.w, p.h - 2, "#7b4b2c");
-        rect(x, y + p.h, p.w, 1, "#4c2f27");
-        for (let tx = 0; tx < p.w; tx += 8) rect(x + tx + 2, y - 3, 3, 3, PAL.grass);
+        if (!drawFittedAsset(art.normal, x, y, p.w, Math.max(12, p.h + 4))) {
+          rect(x, y, p.w, p.h, PAL.gold);
+          rect(x, y + 2, p.w, p.h - 2, "#7b4b2c");
+          rect(x, y + p.h, p.w, 1, "#4c2f27");
+          for (let tx = 0; tx < p.w; tx += 8) rect(x + tx + 2, y - 3, 3, 3, PAL.grass);
+        }
       }
     }
     drawHazards();
@@ -2178,6 +2288,7 @@
       if (x < -h.w || x > W) continue;
       const y = Math.floor(h.y - cameraY);
       if (y < -16 || y > H + 16) continue;
+      if (drawFittedAsset(art.hazard, x, y - 2, h.w, Math.max(12, h.h + 3))) continue;
       // Base / mount
       rect(x, y + h.h - 2, h.w, 2, "#3a2814");
       // Spikes
@@ -2218,6 +2329,10 @@
       rect(x - 6, y - 6, 12, 12, PAL.gold);
       rect(x - 4, y - 9, 8, 18, PAL.gold);
       ctx.restore();
+      if (imgReady(art.gem)) {
+        drawFittedAsset(art.gem, x - 9, y - 11, 18, 22);
+        continue;
+      }
       rect(x - 3, y - 6, 6, 12, PAL.gold2);
       rect(x - 6, y - 2, 12, 4, PAL.gold);
       rect(x - 2, y - 3, 4, 6, PAL.white);
@@ -2238,6 +2353,10 @@
       ctx.globalAlpha = 0.16;
       rect(x - 7, y - 7, 14, 14, PAL.red);
       ctx.restore();
+      if (imgReady(art.heart)) {
+        drawFittedAsset(art.heart, x - 10, y - 10, 20, 20);
+        continue;
+      }
       drawPixelHeart(x, y, PAL.red, PAL.red2);
     }
   }
@@ -2677,7 +2796,8 @@
       const hx = 14 + i * 12;
       if (i < player.hp) {
         const blink = hpFlash > 0 && i === player.hp - 1 && Math.floor(time * 10) % 2 === 0;
-        drawPixelHeart(hx, 12, blink ? PAL.white : PAL.red, PAL.red2);
+        if (imgReady(art.heart) && !blink) drawFittedAsset(art.heart, hx - 6, 6, 12, 12);
+        else drawPixelHeart(hx, 12, blink ? PAL.white : PAL.red, PAL.red2);
       } else {
         drawPixelHeart(hx, 12, "#3a1c2c", "#4a2438");
       }
