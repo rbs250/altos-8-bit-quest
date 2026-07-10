@@ -56,10 +56,17 @@
     uiDark: "#141728"
   };
 
-  const CHARACTERS = Array.isArray(window.ALTOS_CHARACTERS) && window.ALTOS_CHARACTERS.length
-    ? window.ALTOS_CHARACTERS
-    : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }];
-  const ASSET_VERSION = "gpt2-fire-flight-20260622";
+  // --- Roster & per-character assets -----------------------------------
+  const ROSTER = Array.isArray(window.ALTOS_ROSTER) && window.ALTOS_ROSTER.length
+    ? window.ALTOS_ROSTER
+    : [{
+        id: "altos", name: "ALTOS", locked: false,
+        eggSheet: "assets/sprites/egg_hatch_sheet.png",
+        stages: Array.isArray(window.ALTOS_CHARACTERS) && window.ALTOS_CHARACTERS.length
+          ? window.ALTOS_CHARACTERS
+          : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
+      }];
+  const ASSET_VERSION = "grow-lava-20260708";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -69,24 +76,61 @@
   const FIRE_FRAMES = 8;
   const EGG_FRAME = 128;
   const EGG_HATCH_FRAMES = 14;
-  const spriteSheets = CHARACTERS.map(character => {
-    const img = new Image();
-    img.src = assetUrl(character.sheet);
-    return img;
-  });
-  const spriteAtlases = CHARACTERS.map(character => {
-    if (!character.atlas) return null;
-    const img = new Image();
-    img.src = assetUrl(character.atlas);
-    return img;
-  });
-  const eggHatchSheet = new Image();
-  eggHatchSheet.src = assetUrl("assets/sprites/egg_hatch_sheet.png");
+
+  const imageCache = {};
+  function loadImg(path) {
+    if (!path) return null;
+    if (!imageCache[path]) {
+      const img = new Image();
+      img.src = assetUrl(path);
+      imageCache[path] = img;
+    }
+    return imageCache[path];
+  }
+  function imgReady(img) {
+    return img && img.complete && img.naturalWidth > 0;
+  }
+
+  let unlocks = (() => {
+    try { return JSON.parse(localStorage.getItem("altos8bitUnlocks") || "{}"); }
+    catch (_) { return {}; }
+  })();
+  function saveUnlocks() {
+    try { localStorage.setItem("altos8bitUnlocks", JSON.stringify(unlocks)); } catch (_) {}
+  }
+  function isUnlocked(ch) {
+    return !ch.locked || !!unlocks[ch.id];
+  }
+
+  let charIndex = 0;
+  let CHARACTERS = ROSTER[0].stages;
+  let spriteSheets = [];
+  let spriteAtlases = [];
+  let charEggSheet = null;
+  let charFireSheet = null;
+  const defaultEggSheet = loadImg("assets/sprites/egg_hatch_sheet.png");
+  function currentChar() {
+    return ROSTER[charIndex];
+  }
+  function setCharacter(i) {
+    charIndex = ((i % ROSTER.length) + ROSTER.length) % ROSTER.length;
+    const ch = currentChar();
+    CHARACTERS = ch.stages;
+    spriteSheets = ch.stages.map(s => s.sheet ? loadImg(s.sheet) : null);
+    spriteAtlases = ch.stages.map(s => s.atlas ? loadImg(s.atlas) : null);
+    charEggSheet = ch.eggSheet ? loadImg(ch.eggSheet) : null;
+    charFireSheet = ch.fireSheet ? loadImg(ch.fireSheet) : null;
+    stageNames = CHARACTERS.map(s => String(s.name || s.id).toUpperCase());
+    stageNeed = CHARACTERS.map((_, idx) => idx >= CHARACTERS.length - 1 ? 999 : 5 + idx * 2);
+    try { localStorage.setItem("altos8bitChar", ch.id); } catch (_) {}
+  }
+
   const fireSheet = new Image();
   fireSheet.src = assetUrl("assets/sprites/fire_breath_sheet.png");
   const ATTACK_ANIM_TIME = 0.56;
   const HURT_ANIM_TIME = 0.42;
   const JUMP_ANIM_TIME = 0.55;
+  const MELT_TIME = 0.9; // Malfoy lava-kill puddle duration
 
   const keys = Object.create(null);
   const platforms = [];
@@ -119,13 +163,39 @@
   let fireCooldown = 0;
   let flapHeld = false;
 
+  // Feel & polish state
+  const CHECKPOINTS = [1100, 2200];
+  let checkpointX = 56;
+  let camXf = 0;          // smooth camera (float); cameraX/Y stay rounded for crisp pixels
+  let camYf = 0;
+  let damageFlash = 0;    // red screen blink after a hit
+  let hpFlash = 0;        // HUD heart blink after hp change
+  let gemPulse = 0;       // HUD gem counter pop on pickup
+  let comboN = 0;         // consecutive-gem pitch ladder
+  let comboT = 0;
+  let heartbeatT = 0;     // low-HP pulse SFX
+  let bossIntroT = 0;     // letterbox cinematic when the boss wakes
+  let shootingStar = null;
+  const hearts = [];      // heart pickups dropped by enemies
+  const fireflies = [];
+
+  // Evolution growth: draw sizes compensate for how much of the 160px atlas
+  // frame the art actually fills (babies ~82%, winged adults only ~58%), so
+  // the dragon visibly GROWS each stage instead of shrinking into wingspan
+  // whitespace. Hitboxes grow alongside, anchored at the feet.
+  const STAGE_DRAW = [44, 58, 100, 122, 146, 170];
+  const STAGE_BOX = [
+    { w: 22, h: 15 }, { w: 26, h: 18 }, { w: 32, h: 22 },
+    { w: 38, h: 26 }, { w: 44, h: 30 }, { w: 50, h: 34 }
+  ];
+
   const player = {
     x: 56,
-    y: GROUND_Y - 24,
+    y: GROUND_Y - 15,
     vx: 0,
     vy: 0,
-    w: 28,
-    h: 20,
+    w: 22,
+    h: 15,
     face: 1,
     ground: false,
     stamina: 1,
@@ -140,16 +210,25 @@
     deadAnim: 0
   };
 
-  const stageNames = CHARACTERS.map(character => String(character.name || character.id).toUpperCase());
-  const stageNeed = CHARACTERS.map((_, index) => index >= CHARACTERS.length - 1 ? 999 : 5 + index * 2);
-  const eggPalettes = [
-    { shell: PAL.blue, shade: PAL.blue3, light: PAL.blue2, accent: PAL.gold, gem: PAL.purple, spark: PAL.white },
-    { shell: "#43c9ff", shade: "#245ed8", light: "#b9f5ff", accent: PAL.gold2, gem: PAL.red, spark: PAL.blue2 },
-    { shell: "#5ed7ff", shade: "#253a9c", light: "#d7fbff", accent: "#ff8a65", gem: "#6a4fe3", spark: PAL.gold2 },
-    { shell: "#36b8f2", shade: "#143b87", light: "#bff8ff", accent: "#f2b64d", gem: "#e83f5f", spark: PAL.white },
-    { shell: "#53c4ff", shade: "#2843a8", light: "#e0fbff", accent: "#ffcf5c", gem: "#ff5f7a", spark: PAL.gold2 },
-    { shell: "#62e2ff", shade: "#2248b5", light: "#d9ffff", accent: "#ffdf7a", gem: "#d74bff", spark: PAL.blue2 }
-  ];
+  function playerDrawSize() {
+    return STAGE_DRAW[Math.min(player.stage, STAGE_DRAW.length - 1)];
+  }
+
+  // Resize the hitbox for the current stage, keeping the feet planted so a
+  // mid-run evolution never clips the dragon into the ground or a platform.
+  function applyStageBox() {
+    const box = STAGE_BOX[Math.min(player.stage, STAGE_BOX.length - 1)];
+    const feet = player.y + player.h;
+    const cx = player.x + player.w / 2;
+    player.w = box.w;
+    player.h = box.h;
+    player.x = cx - box.w / 2;
+    player.y = feet - box.h;
+  }
+
+  let stageNames = [];
+  let stageNeed = [];
+  const DEFAULT_EGG_PALETTE = { shell: PAL.blue, shade: PAL.blue3, light: PAL.blue2, accent: PAL.gold, gem: PAL.purple, spark: PAL.white };
 
   function reset() {
     clearKeys();
@@ -173,7 +252,6 @@
     boss = null;
     winTimer = 0;
     player.x = 56;
-    player.y = GROUND_Y - 24;
     player.vx = 0;
     player.vy = 0;
     player.face = 1;
@@ -181,6 +259,8 @@
     player.stamina = 1;
     player.hp = 5;
     player.stage = 0;
+    applyStageBox();
+    player.y = GROUND_Y - player.h;
     player.xp = 0;
     player.invuln = 0;
     player.fireFlash = 0;
@@ -189,6 +269,18 @@
     player.jumpAnim = 0;
     player.deadAnim = 0;
     flapHeld = false;
+    checkpointX = 56;
+    camXf = 0;
+    camYf = 0;
+    damageFlash = 0;
+    hpFlash = 0;
+    gemPulse = 0;
+    comboN = 0;
+    comboT = 0;
+    heartbeatT = 0;
+    bossIntroT = 0;
+    shootingStar = null;
+    hearts.length = 0;
     buildWorld();
   }
 
@@ -205,17 +297,17 @@
     const ledges = [
       [180, 116, 72],
       [330, 94, 64, "trampoline"],
-      [500, 126, 96],
+      [500, 116, 96],
       [675, 86, 72],
       [850, 108, 88, "crumble"],
       [1050, 74, 72],
-      [1225, 122, 80, "spiketop"],
+      [1225, 112, 80, "spiketop"],
       [1440, 92, 96],
-      [1660, 114, 72, "trampoline"],
+      [1660, 110, 72, "trampoline"],
       [1840, 78, 88],
-      [2045, 118, 80, "crumble"],
+      [2045, 112, 80, "crumble"],
       [2230, 88, 72],
-      [2440, 126, 104, "spiketop"],
+      [2440, 116, 104, "spiketop"],
       [2660, 96, 80, "crumble"],
       [2850, 76, 112]
     ];
@@ -278,6 +370,17 @@
       });
     }
 
+    // Ambient fireflies drifting near the ground line
+    fireflies.length = 0;
+    for (let i = 0; i < 44; i += 1) {
+      fireflies.push({
+        x: 90 + i * 70 + ((i * 53) % 38),
+        y: GROUND_Y - 8 - ((i * 29) % 52),
+        phase: i * 1.7,
+        drift: 8 + (i % 5) * 3
+      });
+    }
+
     // Boss: at the end of the level, beyond the last ledge
     boss = {
       x: 3050, y: 70, w: 64, h: 56, baseY: 70,
@@ -291,7 +394,13 @@
   function seedStars() {
     stars.length = 0;
     for (let i = 0; i < 90; i += 1) {
-      stars.push({ x: (i * 47) % W, y: 8 + ((i * 31) % 74), c: i % 4 === 0 ? PAL.gold2 : PAL.blue2 });
+      stars.push({
+        x: (i * 47) % W,
+        y: 8 + ((i * 31) % 74),
+        c: i % 4 === 0 ? PAL.gold2 : PAL.blue2,
+        tw: 1.2 + (i % 5) * 0.7,   // twinkle speed
+        phase: i * 1.31
+      });
     }
   }
 
@@ -426,12 +535,44 @@
         { wave: "triangle", gain: 0.012, notes: [
             _n(2,E5,0.08), _n(10,F5,0.08), _n(18,E5,0.08), _n(26,F5,0.08),
             _n(34,G5,0.08), _n(42,F5,0.08), _n(50,A5,0.08), _n(58,G5,0.08) ]},
+        // Heavy kick on quarters + driving hats on 8ths
+        { wave: "kick", gain: 0.055, notes: (() => {
+            const arr = []; for (let i = 0; i < 16; i++) arr.push(_n(i * 4, 170, 0.10));
+            return arr;
+          })()},
+        { wave: "noise", gain: 0.010, notes: (() => {
+            const arr = []; for (let i = 0; i < 32; i++) arr.push(_n(i * 2 + 1, 0, 0.03));
+            return arr;
+          })()},
       ]
     },
   };
+  // Percussion for the play track (kept out of the literal above so the
+  // melodic parts stay readable): kick on quarters, hat on offbeats.
+  MUSIC_TRACKS.play.parts.push(
+    { wave: "kick", gain: 0.048, notes: (() => {
+        const arr = []; for (let i = 0; i < 16; i++) arr.push(_n(i * 4, 150, 0.09));
+        return arr;
+      })()},
+    { wave: "noise", gain: 0.011, notes: (() => {
+        const arr = []; for (let i = 0; i < 16; i++) arr.push(_n(i * 4 + 2, 0, 0.035));
+        return arr;
+      })()}
+  );
 
-  // One-shot stings â€” same shape but `loop:false` and we revert to silence.
+  // One-shot stings â€” same shape but `loop:false`; when one finishes the
+  // engine re-syncs to the current mode's track (silence for END/WIN).
   const MUSIC_STINGS = {
+    evolve: {
+      bpm: 140, steps: 16, loop: false,
+      parts: [
+        { wave: "triangle", gain: 0.036, notes: [
+            _n(0,C4,0.14), _n(2,E4,0.14), _n(4,G4,0.14),
+            _n(6,C5,0.20), _n(10,E5,0.34), _n(12,G5,0.50) ]},
+        { wave: "square", gain: 0.022, notes: [
+            _n(0,C5,0.12), _n(4,E5,0.12), _n(8,G5,0.20), _n(12,A5,0.45) ]},
+      ]
+    },
     win: {
       bpm: 132, steps: 32, loop: false,
       parts: [
@@ -466,7 +607,42 @@
 
   function musicStop() { musicTrack = null; }
 
+  let noiseBuffer = null;
+  function getNoiseBuffer() {
+    if (noiseBuffer) return noiseBuffer;
+    const len = Math.floor(audio.sampleRate * 0.1);
+    noiseBuffer = audio.createBuffer(1, len, audio.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < len; i += 1) data[i] = Math.random() * 2 - 1;
+    return noiseBuffer;
+  }
+
   function _scheduleNote(part, n, when) {
+    const peakGain = Math.max(0.0005, part.gain * MUSIC_MASTER);
+    if (part.wave === "noise") {
+      // Hi-hat: a short burst of white noise
+      const src = audio.createBufferSource();
+      src.buffer = getNoiseBuffer();
+      const namp = audio.createGain();
+      namp.gain.setValueAtTime(peakGain, when);
+      namp.gain.exponentialRampToValueAtTime(0.0005, when + n.d);
+      src.connect(namp); namp.connect(audio.destination);
+      src.start(when); src.stop(when + n.d + 0.02);
+      return;
+    }
+    if (part.wave === "kick") {
+      // Kick: a sine that drops fast from n.f to sub range
+      const osc = audio.createOscillator();
+      const kamp = audio.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(n.f, when);
+      osc.frequency.exponentialRampToValueAtTime(42, when + n.d);
+      kamp.gain.setValueAtTime(peakGain, when);
+      kamp.gain.exponentialRampToValueAtTime(0.0005, when + n.d);
+      osc.connect(kamp); kamp.connect(audio.destination);
+      osc.start(when); osc.stop(when + n.d + 0.03);
+      return;
+    }
     const osc = audio.createOscillator();
     const amp = audio.createGain();
     osc.type = part.wave;
@@ -494,7 +670,13 @@
       musicStep += 1;
       if (musicStep >= musicTrack.steps) {
         if (musicTrack.__loop) musicStep = 0;
-        else { musicTrack = null; break; }
+        else {
+          // Sting finished: fall back to whatever the current mode wants
+          // (musicForMode returns null for END/WIN, which stays silent).
+          musicTrack = null;
+          musicSyncToMode();
+          break;
+        }
       }
     }
   }
@@ -545,11 +727,26 @@
   }
 
   function selectedName() {
-    return "ALTOS";
+    return currentChar().name;
   }
 
   function selectedEggPalette() {
-    return eggPalettes[0];
+    return currentChar().eggPalette || DEFAULT_EGG_PALETTE;
+  }
+
+  function grantUnlocks(event) {
+    for (const ch of ROSTER) {
+      if (!ch.locked || unlocks[ch.id] || !ch.unlock) continue;
+      const u = ch.unlock;
+      const hit = (u.type === "win" && event.type === "win") ||
+                  (u.type === "stage" && event.type === "stage" && event.stage >= u.stage);
+      if (hit) {
+        unlocks[ch.id] = true;
+        saveUnlocks();
+        addText(ch.name + " UNLOCKED!", cameraX + 90, 56, PAL.gold2);
+        arpeggio(523);
+      }
+    }
   }
 
   function startSelect() {
@@ -563,14 +760,21 @@
 
   function chooseCharacter(delta) {
     hatchTimer = 0;
+    setCharacter(charIndex + delta);
     const x = delta < 0 ? 74 : 246;
     addDust(x, 110, 9, PAL.gold2);
-    addText("COMING SOON", x - 28, 82, PAL.gold2);
-    beep(160, 0.055, "square", 0.022, 0.85);
+    beep(280 + charIndex * 45, 0.06, "square", 0.025, 1.2);
   }
 
   function startEgg() {
     ensureAudio();
+    const ch = currentChar();
+    if (!isUnlocked(ch)) {
+      addText("LOCKED!", 140, 70, PAL.red);
+      shake = Math.max(shake, 2);
+      beep(140, 0.12, "sawtooth", 0.03, 0.6);
+      return;
+    }
     mode = MODE.EGG;
     warmth = 0;
     hatchTimer = 0;
@@ -606,32 +810,59 @@
     mode = MODE.PLAY;
     musicSyncToMode();
     player.x = 56;
-    player.y = GROUND_Y - 24;
     player.vx = 0;
     player.vy = 0;
     player.hp = 5;
     player.stamina = 1;
     player.stage = 0;
     player.xp = 0;
+    applyStageBox();
+    player.y = GROUND_Y - player.h;
     player.attackAnim = 0;
     player.hurtAnim = 0;
     player.jumpAnim = 0;
     player.deadAnim = 0;
+    checkpointX = 56;
+    camXf = 0;
+    camYf = clamp(player.y - 88, CAMERA_TOP_Y, 0);
     cameraX = 0;
-    cameraY = 0;
+    cameraY = Math.round(camYf);
     addText(selectedName() + "!", player.x, player.y - 16, PAL.gold2);
+  }
+
+  function continueFromCheckpoint() {
+    mode = MODE.PLAY;
+    player.hp = 5;
+    player.invuln = 2;
+    player.hurtAnim = 0;
+    player.deadAnim = 0;
+    player.x = checkpointX;
+    player.y = 40;
+    player.vx = 0;
+    player.vy = 0;
+    player.stamina = 1;
+    bossFires.length = 0;
+    camXf = clamp(player.x - 92, 0, LEVEL_W - W);
+    camYf = clamp(player.y - 88, CAMERA_TOP_Y, 0);
+    cameraX = Math.round(camXf);
+    cameraY = Math.round(camYf);
+    addText("GO!", player.x, player.y - 14, PAL.gold2);
+    arpeggio(392);
+    musicSyncToMode();
   }
 
   function evolve() {
     if (player.stage >= CHARACTERS.length - 1) return;
     player.stage += 1;
     player.xp = 0;
+    applyStageBox();
     mode = MODE.EVOLVE;
     hatchTimer = 0;
     shake = 8;
     freeze = 0.08;
     addDust(player.x + 14, player.y + 10, 70, PAL.gold2);
-    arpeggio(392);
+    musicSet("evolve");
+    grantUnlocks({ type: "stage", stage: player.stage });
   }
 
   function update(dt) {
@@ -643,6 +874,19 @@
     player.jumpAnim = Math.max(0, player.jumpAnim - dt);
     if (mode === MODE.END) player.deadAnim += dt;
     shake = Math.max(0, shake - dt * 16);
+    damageFlash = Math.max(0, damageFlash - dt);
+    hpFlash = Math.max(0, hpFlash - dt);
+    gemPulse = Math.max(0, gemPulse - dt);
+    comboT = Math.max(0, comboT - dt);
+    bossIntroT = Math.max(0, bossIntroT - dt);
+
+    // Occasional shooting star (any mode with a sky)
+    if (shootingStar) {
+      shootingStar.t += dt;
+      if (shootingStar.t > 0.9) shootingStar = null;
+    } else if (Math.random() < dt * 0.10) {
+      shootingStar = { x: 60 + Math.random() * (W - 60), y: 8 + Math.random() * 46, t: 0 };
+    }
 
     updateParticles(dt);
     updatePlatforms(dt);
@@ -690,13 +934,44 @@
     player.fireFlash = Math.max(0, player.fireFlash - dt);
     updatePlayer(dt);
     updateFire(dt);
-    updateShards();
+    updateShards(dt);
+    updateHearts(dt);
     updateEnemies(dt);
     updateBoss(dt);
     updateBossFires(dt);
     updateHazards(dt);
-    cameraX = clamp(Math.round(player.x - 92), 0, LEVEL_W - W);
-    cameraY = clamp(Math.round(player.y - 88), CAMERA_TOP_Y, 0);
+
+    // Checkpoints: passing a flag saves it for END-screen continues
+    for (const cx of CHECKPOINTS) {
+      if (player.x > cx && checkpointX < cx) {
+        checkpointX = cx;
+        addText("CHECKPOINT!", cx - 26, player.y - 22, PAL.blue2);
+        addDust(cx, groundYAt(cx) - 30, 14, PAL.gold2);
+        arpeggio(440);
+      }
+    }
+
+    // Low-HP heartbeat
+    if (player.hp === 1) {
+      heartbeatT -= dt;
+      if (heartbeatT <= 0) {
+        heartbeatT = 0.85;
+        beep(72, 0.09, "sine", 0.028, 0.7);
+      }
+    }
+
+    // Smooth camera: lead the player's facing + velocity, then round for
+    // crisp pixels. Floats live in camXf/camYf.
+    const lookX = clamp(player.x - 92 + player.face * 26 + player.vx * 0.14, 0, LEVEL_W - W);
+    const lookY = clamp(player.y - 88 + player.vy * 0.10, CAMERA_TOP_Y, 0);
+    camXf += (lookX - camXf) * Math.min(1, dt * 5.2);
+    camYf += (lookY - camYf) * Math.min(1, dt * 5.0);
+    cameraX = Math.round(camXf);
+    cameraY = Math.round(camYf);
+  }
+
+  function groundYAt(x) {
+    return GROUND_Y + Math.sin(x * 0.018) * 5 + Math.sin(x * 0.006) * 7;
   }
 
   function warmEgg(amount) {
@@ -764,6 +1039,20 @@
 
     if (player.ground) player.stamina = clamp(player.stamina + dt * 0.75, 0, 1);
     else player.stamina = clamp(player.stamina + dt * 0.13, 0, 1);
+
+    // Footstep dust while running
+    if (player.ground && Math.abs(player.vx) > 46 && Math.random() > 0.85) {
+      particles.push({
+        x: player.x + 14 - player.face * 8,
+        y: player.y + player.h,
+        vx: -player.face * (14 + Math.random() * 18),
+        vy: -22 - Math.random() * 18,
+        life: 0.22 + Math.random() * 0.15,
+        g: 140,
+        c: "#3f7f63",
+        s: 1
+      });
+    }
 
     if (fire && fireCooldown <= 0 && player.stamina > 0.09) {
       shootFire();
@@ -852,14 +1141,16 @@
   }
 
   function playerMouthPoint() {
-    const size = 80 + Math.min(player.stage, 5) * 5;
+    const size = playerDrawSize();
     const flying = !player.ground;
     const bob = flying ? Math.round(Math.sin(time * 14) * 2) : 0;
     const anchorX = player.x + player.w / 2;
     const anchorY = player.y + player.h + bob;
+    // Mouth level, tuned against the sprites: low enough that grounded
+    // shots connect with ground-patrolling enemies.
     return {
       x: anchorX + player.face * size * 0.38,
-      y: anchorY - size * (flying ? 0.63 : 0.66)
+      y: anchorY - size * (flying ? 0.48 : 0.40)
     };
   }
 
@@ -868,27 +1159,40 @@
   }
 
   function shootFire() {
-    fireCooldown = Math.max(0.08, 0.16 - player.stage * 0.015);
+    // Malfoy's special: a molten lava ball that MELTS enemies and burns
+    // straight through them instead of popping on the first hit.
+    const lava = currentChar().id === "malfoy";
+    fireCooldown = lava
+      ? Math.max(0.16, 0.30 - player.stage * 0.02)
+      : Math.max(0.08, 0.16 - player.stage * 0.015);
     const mouth = playerMouthPoint();
-    const w = 22 + player.stage * 5;
-    const h = 14 + player.stage * 2;
+    const w = (22 + player.stage * 5) * (lava ? 1.3 : 1);
+    const h = (14 + player.stage * 2) * (lava ? 1.3 : 1);
     const fx = mouth.x + player.face * (w * 0.46);
     const fy = mouth.y;
     fires.push({
       x: fx,
       y: fy,
-      vx: player.face * (215 + player.stage * 35),
-      vy: clamp(player.vy * 0.12, -28, 28),
+      vx: player.face * (lava ? 170 + player.stage * 25 : 215 + player.stage * 35),
+      // Grounded shots arc downward: a grown dragon's mouth sits high, so the
+      // breath must dip to connect with ground-level enemies.
+      vy: clamp(player.vy * 0.12, -28, 28) + (player.ground ? 24 + player.stage * 13 : 0),
       age: 0,
-      life: 0.62,
+      life: lava ? 0.85 : 0.62,
       dir: player.face,
+      lava,
       w,
       h
     });
     player.fireFlash = 0.18;
     player.attackAnim = ATTACK_ANIM_TIME;
-    addDust(mouth.x, mouth.y, 5, PAL.red2);
-    beep(96, 0.08, "sawtooth", 0.032, 0.55);
+    addDust(mouth.x, mouth.y, 5, lava ? PAL.gold2 : PAL.red2);
+    if (lava) {
+      beep(64, 0.14, "sawtooth", 0.04, 0.4);
+      beep(140, 0.10, "triangle", 0.03, 0.5);
+    } else {
+      beep(96, 0.08, "sawtooth", 0.032, 0.55);
+    }
   }
 
   function enemyBox(e) {
@@ -905,8 +1209,58 @@
     best = Math.max(best, score);
     localStorage.setItem("altos8bitBest", String(best));
     shake = Math.max(shake, 3);
+    freeze = Math.max(freeze, 0.05); // hit-stop: a single juicy frame
     beep(440, 0.08, "square", 0.035, 0.55);
     beep(220, 0.10, "sawtooth", 0.025, 0.45);
+    // Wounded dragons get mercy: enemies may drop a heart pickup
+    const dropChance = player.hp <= 2 ? 0.65 : player.hp < 5 ? 0.3 : 0;
+    if (Math.random() < dropChance) {
+      hearts.push({ x: e.x, y: e.y - e.h - 6, t: 0, life: 11 });
+    }
+  }
+
+  // Malfoy's lava kill: the enemy liquefies into a glowing puddle.
+  function meltEnemy(e, scoreBonus) {
+    e.dead = true;
+    e.melt = true;
+    e.dying = MELT_TIME;
+    addDust(e.x, e.y - e.h / 2, 18, PAL.gold2);
+    addDust(e.x, e.y - 2, 10, PAL.red);
+    addText("MELTED! +" + scoreBonus, e.x - 14, e.y - e.h - 4, PAL.gold2);
+    score += scoreBonus;
+    best = Math.max(best, score);
+    localStorage.setItem("altos8bitBest", String(best));
+    shake = Math.max(shake, 4);
+    freeze = Math.max(freeze, 0.05);
+    // sizzle: low rumble + descending hiss
+    beep(70, 0.22, "sawtooth", 0.04, 0.35);
+    beep(300, 0.16, "triangle", 0.025, 0.3);
+    const dropChance = player.hp <= 2 ? 0.65 : player.hp < 5 ? 0.3 : 0;
+    if (Math.random() < dropChance) {
+      hearts.push({ x: e.x, y: e.y - e.h - 6, t: 0, life: 11 });
+    }
+  }
+
+  function updateHearts(dt) {
+    const pbox = { x: player.x, y: player.y, w: player.w, h: player.h };
+    for (let i = hearts.length - 1; i >= 0; i -= 1) {
+      const h = hearts[i];
+      h.t += dt;
+      h.life -= dt;
+      if (h.life <= 0) { hearts.splice(i, 1); continue; }
+      const hy = h.y + Math.sin(h.t * 3) * 3;
+      if (rects({ x: h.x - 5, y: hy - 5, w: 10, h: 10 }, pbox)) {
+        hearts.splice(i, 1);
+        if (player.hp < 5) {
+          player.hp += 1;
+          hpFlash = 0.6;
+        }
+        addText("+HP", h.x - 6, hy - 10, PAL.red2);
+        addDust(h.x, hy, 12, PAL.red2);
+        beep(520, 0.09, "triangle", 0.035, 1.5);
+        beep(660, 0.09, "triangle", 0.03, 1.4);
+      }
+    }
   }
 
   function updateEnemies(dt) {
@@ -925,6 +1279,13 @@
         if (e.x > e.anchorX + e.range) { e.x = e.anchorX + e.range; e.vx = -Math.abs(e.vx); }
         if (e.x < e.anchorX - e.range) { e.x = e.anchorX - e.range; e.vx =  Math.abs(e.vx); }
       } else if (e.type === "wisp") {
+        // Wisps drift their anchor gently toward a nearby dragon
+        const dxp = player.x - e.anchorX;
+        const dyp = player.y - e.anchorY;
+        if (Math.abs(dxp) < 95 && Math.abs(dyp) < 80) {
+          e.anchorX += clamp(dxp, -1, 1) * 11 * dt;
+          e.anchorY = clamp(e.anchorY + clamp(dyp, -1, 1) * 7 * dt, 24, GROUND_Y - 26);
+        }
         e.x = e.anchorX + Math.sin(e.t * 0.9) * 36;
         e.y = e.anchorY + Math.cos(e.t * 1.4) * 12;
       }
@@ -933,6 +1294,14 @@
         const f = fires[j];
         const fbox = fireBox(f);
         if (rects(fbox, enemyBox(e))) {
+          if (f.lava) {
+            // Lava melts instantly and burns straight through to the next enemy
+            if (!f.hitIds) f.hitIds = new Set();
+            if (f.hitIds.has(e)) continue;
+            f.hitIds.add(e);
+            meltEnemy(e, e.type === "wisp" ? 4 : 3);
+            break;
+          }
           fires.splice(j, 1);
           e.hp -= 1;
           e.hurt = 0.18;
@@ -974,6 +1343,7 @@
     if (boss.hurt > 0) boss.hurt -= dt;
     if (!boss.awakened && player.x > boss.x - 200) {
       boss.awakened = true;
+      bossIntroT = 1.8;
       addText("ANCIENT WAKES", boss.x - 32, boss.y - boss.h - 8, PAL.red);
       shake = Math.max(shake, 5);
       arpeggio(110);
@@ -981,6 +1351,22 @@
       beep(60, 0.45, "sawtooth", 0.05, 0.55);
       beep(120, 0.30, "sawtooth", 0.04, 0.65);
       musicSyncToMode();
+    }
+    // Telegraph: golden sparks converge on the mouth just before a fireball
+    if (boss.awakened && boss.fireCD < 0.4 && Math.random() > 0.45) {
+      const mx = boss.x + (boss.x > player.x ? -boss.w / 2 + 6 : boss.w / 2 - 6);
+      const ox = (Math.random() - 0.5) * 18;
+      const oy = (Math.random() - 0.5) * 14;
+      particles.push({
+        x: mx + ox,
+        y: boss.y - 6 + oy,
+        vx: -ox * 4,
+        vy: -oy * 4,
+        life: 0.22,
+        g: 0,
+        c: PAL.gold2,
+        s: 1
+      });
     }
     boss.y = boss.baseY + Math.sin(boss.t * 1.4) * 8;
     if (boss.awakened) {
@@ -1002,12 +1388,12 @@
       const fbox = fireBox(f);
       if (rects(fbox, bbox)) {
         fires.splice(j, 1);
-        boss.hp -= 1;
+        boss.hp -= f.lava ? 2 : 1;
         boss.hurt = 0.22;
-        shake = Math.max(shake, 3);
-        addDust(f.x, f.y, 10, PAL.gold2);
-        addText("HIT", f.x - 4, f.y - 8, PAL.gold2);
-        beep(420, 0.07, "square", 0.035, 0.55);
+        shake = Math.max(shake, f.lava ? 5 : 3);
+        addDust(f.x, f.y, f.lava ? 18 : 10, PAL.gold2);
+        addText(f.lava ? "SCORCH!" : "HIT", f.x - 4, f.y - 8, PAL.gold2);
+        beep(f.lava ? 220 : 420, 0.07, "square", 0.035, 0.55);
         if (boss.hp <= 0) {
           boss.dead = true;
           boss.dying = 1.4;
@@ -1050,6 +1436,7 @@
     localStorage.setItem("altos8bitBest", String(best));
     arpeggio(659);
     musicSet("win");
+    grantUnlocks({ type: "win" });
   }
 
   function updateFire(dt) {
@@ -1059,17 +1446,42 @@
       f.age += dt;
       f.x += f.vx * dt;
       f.y += (f.vy || 0) * dt;
-      if (f.life <= 0 || f.x < cameraX - 42 || f.x > cameraX + W + 42 || f.y < cameraY - 42 || f.y > cameraY + H + 42) {
+      if (f.y > GROUND_Y + 10) {
+        // breath splashes out on the ground
+        addDust(f.x, GROUND_Y + 2, f.lava ? 12 : 6, f.lava ? PAL.gold2 : PAL.red2);
         fires.splice(i, 1);
-      } else if (Math.random() > 0.5) {
-        addDust(f.x, f.y, 1, Math.random() > 0.5 ? PAL.red2 : PAL.gold2);
+      } else if (f.life <= 0 || f.x < cameraX - 42 || f.x > cameraX + W + 42 || f.y < cameraY - 42 || f.y > cameraY + H + 42) {
+        fires.splice(i, 1);
+      } else if (Math.random() > (f.lava ? 0.2 : 0.5)) {
+        // Rising ember trail (negative gravity drifts them upward);
+        // lava balls also DRIP molten globs that fall like real lava
+        const drip = f.lava && Math.random() > 0.5;
+        particles.push({
+          x: f.x - f.dir * 6,
+          y: f.y + 2 - Math.random() * 6,
+          vx: -f.dir * (10 + Math.random() * 30),
+          vy: drip ? 10 + Math.random() * 20 : -12 + Math.random() * 18,
+          life: 0.3 + Math.random() * 0.3,
+          g: drip ? 160 : -60,
+          c: f.lava ? (Math.random() > 0.4 ? PAL.gold2 : "#ff7a1f") : (Math.random() > 0.5 ? PAL.red2 : PAL.gold2),
+          s: drip ? 2 : 1
+        });
       }
     }
   }
 
-  function updateShards() {
+  function updateShards(dt) {
+    const pcx = player.x + player.w / 2;
+    const pcy = player.y + player.h / 2;
     for (const s of shards) {
       if (s.got) continue;
+      // Gem magnet: nearby gems drift toward the dragon
+      const mdx = pcx - s.x;
+      const mdy = pcy - s.y;
+      if (Math.abs(mdx) < 38 && Math.abs(mdy) < 38) {
+        s.x += mdx * Math.min(1, dt * 6.5);
+        s.y += mdy * Math.min(1, dt * 6.5);
+      }
       const sy = s.y + Math.sin(time * 4 + s.bob) * 4;
       const box = { x: s.x - 5, y: sy - 5, w: 10, h: 10 };
       const pbox = { x: player.x, y: player.y, w: player.w, h: player.h };
@@ -1079,9 +1491,13 @@
         best = Math.max(best, score);
         localStorage.setItem("altos8bitBest", String(best));
         player.xp += 1;
-        addText("+1", s.x, sy - 10, PAL.gold2);
+        gemPulse = 0.3;
+        // Quick pickups climb a pitch ladder
+        comboN = comboT > 0 ? comboN + 1 : 0;
+        comboT = 1.4;
+        addText(comboN >= 3 ? "COMBO x" + (comboN + 1) : "+1", s.x, sy - 10, comboN >= 3 ? PAL.blue2 : PAL.gold2);
         addDust(s.x, sy, 16, PAL.gold2);
-        beep(660 + (score % 8) * 24, 0.06, "square", 0.035, 1.45);
+        beep(Math.min(1250, 620 + comboN * 55), 0.06, "square", 0.035, 1.45);
         if (player.xp >= stageNeed[player.stage]) evolve();
       }
     }
@@ -1093,6 +1509,8 @@
     player.hurtAnim = HURT_ANIM_TIME;
     player.hp -= 1;
     shake = 6;
+    damageFlash = 0.18;
+    hpFlash = 0.6;
     addText("OUCH", player.x, player.y - 8, PAL.red);
     beep(120, 0.13, "sawtooth", 0.04, 0.45);
     if (player.hp <= 0) {
@@ -1160,7 +1578,7 @@
     for (let i = particles.length - 1; i >= 0; i -= 1) {
       const p = particles[i];
       p.life -= dt;
-      p.vy += 220 * dt;
+      p.vy += (p.g === undefined ? 220 : p.g) * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       if (p.life <= 0) particles.splice(i, 1);
@@ -1200,13 +1618,22 @@
   }
 
   function drawTitle() {
-    drawSky(0);
+    drawSky(time * 7); // slow auto-pan brings the parallax to life
     drawLogo(34, 28);
-    drawDragonSprite(192, 112, 3, 1, false);
+    // Orbiting sparkles around the logo
+    for (let i = 0; i < 7; i += 1) {
+      const a = time * 1.6 + i * 0.9;
+      const sx = 95 + Math.cos(a) * (74 + (i % 3) * 9);
+      const sy = 45 + Math.sin(a * 1.3) * 24;
+      rect(sx, sy, 2, 2, i % 2 ? PAL.gold2 : PAL.blue2);
+    }
+    const bob = Math.sin(time * 1.8) * 3;
+    drawDragonSprite(192, 112 + bob, 3, 1, false);
     text("HATCH A DRAGON. FLY. EVOLVE.", 35, 78, PAL.blue2, 1);
     blinkText("PRESS ENTER", 110, 128, PAL.gold2);
     text("NEXT: CHOOSE YOUR DRAGON", 72, 140, PAL.white, 1);
     text("BEST " + best, 132, 154, PAL.white, 1);
+    text("ARROWS MOVE  W FLY  J FIRE  M MUSIC", 46, 166, "#7a86b8", 1);
     drawBorder();
   }
 
@@ -1217,15 +1644,21 @@
   }
 
   function drawSelect() {
-    drawSky(0);
-    text("CHOOSE YOUR DRAGON", 42, 18, PAL.gold2, 2);
-    text("MORE DRAGONS SOON", 88, 38, PAL.blue2, 1);
+    drawSky(time * 4);
+    text("CHOOSE YOUR DRAGON", 42, 14, PAL.gold2, 2);
+    const ch = currentChar();
+    const unlocked = isUnlocked(ch);
 
-    drawLockedDragonSlot(74, 132);
+    // Side slots: neighbors in the roster carousel
+    const prev = ROSTER[(charIndex + ROSTER.length - 1) % ROSTER.length];
+    const next = ROSTER[(charIndex + 1) % ROSTER.length];
+    drawSideDragonSlot(56, 132, prev);
+    drawSideDragonSlot(264, 132, next);
 
+    // Center card
     const cx = 160;
     const platformY = 126;
-    const cardW = 76;
+    const cardW = 84;
     const cardX = cx - cardW / 2;
     rect(cardX, platformY, cardW, 4, PAL.gold2);
     rect(cardX + 2, platformY + 4, cardW - 4, 7, "#7b4b2c");
@@ -1233,26 +1666,68 @@
     rect(cardX - 2, platformY - 2, 2, 15, PAL.blue2);
     rect(cardX + cardW, platformY - 2, 2, 15, PAL.blue2);
     drawSelectionSparks(cx, 91);
-    drawDragonPreview(cx, 124, 0, 78, Math.floor(time * 3) % 2 === 0);
-    text("ALTOS", cx - 20, platformY + 16, PAL.gold2, 1);
+    if (unlocked) {
+      drawDragonPreview(cx, 124, 0, 80, Math.floor(time * 3) % 2 === 0);
+    } else {
+      drawMysteryDragonPreview(cx, platformY - 2, 66);
+    }
+    const nameW = ch.name.length * 8;
+    text(ch.name, cx - nameW / 2, platformY + 16, unlocked ? PAL.gold2 : "#7a86b8", 1);
+    if (ch.tagline && unlocked) {
+      text(ch.tagline, cx - ch.tagline.length * 4, 34, PAL.blue2, 1);
+    }
+    if (!unlocked && ch.unlock) {
+      text(ch.unlock.label, cx - ch.unlock.label.length * 4, 34, PAL.red2, 1);
+    }
+    text((charIndex + 1) + "/" + ROSTER.length, 150, 46, "#7a86b8", 1);
 
-    drawLockedDragonSlot(246, 132);
-
-    text("<", 42, 96, PAL.gold2, 3);
-    text(">", 264, 96, PAL.gold2, 3);
-    blinkText("ENTER TO INCUBATE", 88, 160, PAL.white);
+    text("<", 30, 96, PAL.gold2, 3);
+    text(">", 280, 96, PAL.gold2, 3);
+    blinkText(unlocked ? "ENTER TO INCUBATE" : "LOCKED", unlocked ? 88 : 132, 160, unlocked ? PAL.white : PAL.red2);
     drawParticlesScreen();
     drawBorder();
   }
 
-  function drawLockedDragonSlot(cx, platformY) {
-    const cardW = 58;
+  function drawSideDragonSlot(cx, platformY, ch) {
+    const cardW = 52;
     const cardX = cx - cardW / 2;
     rect(cardX, platformY, cardW, 4, PAL.gold);
     rect(cardX + 2, platformY + 4, cardW - 4, 7, "#4c2f27");
-    for (let tx = 0; tx < cardW; tx += 8) rect(cardX + tx + 3, platformY - 3, 3, 3, PAL.grass);
-    drawMysteryDragonPreview(cx, platformY - 2, 52);
-    text("???", cx - 12, platformY + 16, PAL.white, 1);
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    if (isUnlocked(ch)) {
+      const idx = ROSTER.indexOf(ch);
+      drawRosterPreview(idx, cx, platformY - 2, 44);
+    } else {
+      drawMysteryDragonPreview(cx, platformY - 2, 46);
+    }
+    ctx.restore();
+    const label = isUnlocked(ch) ? ch.name : "???";
+    text(label, cx - label.length * 4, platformY + 16, PAL.white, 1);
+  }
+
+  // Draw any roster character's stage-1 preview (not just the selected one)
+  function drawRosterPreview(rosterIdx, x, y, size) {
+    const ch = ROSTER[rosterIdx];
+    const st = ch.stages[0];
+    const atlas = st.atlas ? loadImg(st.atlas) : null;
+    if (imgReady(atlas) && st.animations) {
+      const anim = st.animations.idle;
+      const frameW = st.frameWidth || 160;
+      const frameH = st.frameHeight || 160;
+      const frame = Math.floor(time * (anim.fps || 6)) % Math.max(1, anim.frames || 1);
+      ctx.drawImage(atlas, frame * frameW, anim.row * frameH, frameW, frameH,
+        Math.floor(x - size / 2), Math.floor(y - size * 0.94), size, size);
+      return;
+    }
+    const sheet = st.sheet ? loadImg(st.sheet) : null;
+    if (imgReady(sheet)) {
+      const frame = Math.floor(time * 2.2) % 2;
+      ctx.drawImage(sheet, frame * SPRITE_FRAME, 0, SPRITE_FRAME, SPRITE_FRAME,
+        Math.floor(x - size / 2), Math.floor(y - size * 0.84), size, size);
+      return;
+    }
+    drawMysteryDragonPreview(x, y, size);
   }
 
   function drawMysteryDragonPreview(x, y, size) {
@@ -1337,6 +1812,7 @@
     drawSky(cameraX, cameraY);
     drawWorld();
     drawShards();
+    drawHeartPickups();
     drawEnemies();
     drawBoss();
     drawBossFires();
@@ -1345,6 +1821,39 @@
     drawParticlesWorld();
     drawHud();
     drawBossBar();
+
+    // Damage blink
+    if (damageFlash > 0) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.3, damageFlash * 1.6);
+      rect(0, 0, W, H, PAL.red);
+      ctx.restore();
+    }
+    // Last-heart warning vignette
+    if (player.hp === 1 && mode === MODE.PLAY) {
+      const pulse = 0.14 + Math.sin(time * 5) * 0.07;
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      rect(0, 0, W, 6, PAL.red);
+      rect(0, H - 6, W, 6, PAL.red);
+      rect(0, 0, 6, H, PAL.red);
+      rect(W - 6, 0, 6, H, PAL.red);
+      ctx.globalAlpha = pulse * 0.55;
+      rect(6, 6, W - 12, 2, PAL.red);
+      rect(6, H - 8, W - 12, 2, PAL.red);
+      ctx.restore();
+    }
+    // Boss-intro letterbox
+    if (bossIntroT > 0) {
+      const k = Math.min(1, (1.8 - bossIntroT) * 4, bossIntroT * 2);
+      const bh = Math.round(16 * Math.max(0, k));
+      rect(0, 0, W, bh, "#05060b");
+      rect(0, H - bh, W, bh, "#05060b");
+      if (bossIntroT < 1.5) {
+        text("THE ANCIENT AWAKENS", 68, H / 2 - 34, "#552340", 2);
+        text("THE ANCIENT AWAKENS", 66, H / 2 - 36, PAL.red, 2);
+      }
+    }
     drawBorder();
   }
 
@@ -1354,9 +1863,29 @@
       if (x < -20 || x > W + 20) continue;
       const y = Math.floor(e.y - cameraY);
       const flash = e.hurt > 0 && Math.floor(e.t * 60) % 2 === 0;
-      const alpha = e.dead ? Math.max(0, e.dying / 0.45) : 1;
+      const alpha = e.dead ? Math.max(0, e.dying / (e.melt ? MELT_TIME : 0.45)) : 1;
       ctx.save();
       ctx.globalAlpha = alpha;
+      if (e.dead && e.melt) {
+        // Lava melt: the body squashes down into a bubbling molten puddle
+        const p = 1 - Math.max(0, e.dying) / MELT_TIME; // 0 -> 1
+        const bodyH = Math.max(1, Math.round(e.h * (1 - p)));
+        const puddleW = Math.round(e.w * (1 + p * 1.4));
+        ctx.globalAlpha = Math.min(1, alpha + 0.25);
+        // sinking body silhouette
+        rect(x - e.w / 2, y - bodyH, e.w, bodyH, "#7a2410");
+        rect(x - e.w / 2 + 2, y - Math.max(1, bodyH - 2), e.w - 4, Math.max(1, bodyH - 2), "#b3491c");
+        // widening puddle
+        rect(x - puddleW / 2, y - 2, puddleW, 4, "#d96820");
+        rect(x - puddleW / 2 + 2, y - 1, puddleW - 4, 2, PAL.gold2);
+        // bubbles
+        if (Math.random() > 0.4) {
+          const bx = x + Math.round((Math.random() - 0.5) * puddleW * 0.8);
+          rect(bx, y - 4 - Math.round(Math.random() * 3), 2, 2, Math.random() > 0.5 ? PAL.gold2 : "#ff9a3d");
+        }
+        ctx.restore();
+        continue;
+      }
       if (e.type === "drake") {
         const bodyA = flash ? PAL.white : "#3a1f4a";
         const bodyB = flash ? PAL.white : "#5b3070";
@@ -1435,29 +1964,71 @@
 
   function drawBossBar() {
     if (!boss || !boss.awakened || boss.dead) return;
+    // Bottom-center so it never collides with the top HUD
     const barW = 120;
     const x = Math.floor((W - barW) / 2);
-    const y = 16;
+    const y = H - 12;
     rect(x - 1, y - 1, barW + 2, 6, PAL.uiDark);
     rect(x, y, barW, 4, "#2a0f1c");
     const fill = Math.max(0, Math.floor(barW * (boss.hp / boss.maxHp)));
     rect(x, y, fill, 4, PAL.red);
     rect(x, y, Math.max(0, fill - 1), 1, PAL.red2);
-    text("ANCIENT", x, y - 9, PAL.red, 1);
+    text("ANCIENT", x + 36, y - 9, PAL.red, 1);
   }
 
   function drawSky(cam, camY = 0) {
     const altitude = Math.max(0, -camY);
-    clear(PAL.night);
+    // Vertical gradient: deep space up top, softer indigo at the horizon.
+    // Flying higher pushes the bands down so the sky darkens with altitude.
+    // Painted darkest-last-on-top so there are no gaps at any altitude.
+    const bands = ["#0b1026", "#101736", "#141e42", "#18264e", "#1c2c58"];
+    const bandH = Math.ceil(H / bands.length);
+    const shift = Math.floor(altitude * 0.05);
+    clear(bands[bands.length - 1]);
+    for (let i = bands.length - 2; i >= 0; i -= 1) {
+      rect(0, 0, W, (i + 1) * bandH + shift, bands[i]);
+    }
+
     for (const s of stars) {
       const x = Math.floor((s.x - cam * 0.08 + W * 4) % W);
       const y = Math.floor((s.y + altitude * 0.08) % H);
-      rect(x, y, 1, 1, s.c);
+      const tw = Math.sin(time * s.tw + s.phase);
+      if (tw > -0.2) rect(x, y, 1, 1, s.c);
+      if (tw > 0.8) {
+        // Bright twinkle: a tiny cross flare
+        rect(x - 1, y, 1, 1, s.c);
+        rect(x + 1, y, 1, 1, s.c);
+        rect(x, y - 1, 1, 1, s.c);
+        rect(x, y + 1, 1, 1, s.c);
+      }
     }
+
+    if (shootingStar) {
+      const t = shootingStar.t;
+      const sx = shootingStar.x - t * 150;
+      const sy = shootingStar.y + t * 55;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - t / 0.9);
+      line(sx, sy, sx + 15, sy - 6, PAL.white);
+      line(sx + 5, sy - 2, sx + 19, sy - 7, PAL.blue2);
+      ctx.restore();
+    }
+
+    const mx = 250 - (cam * 0.05) % 420;
     const moonY = 20 + altitude * 0.10;
-    rect(250 - (cam * 0.05) % 420, moonY, 10, 10, PAL.gold2);
-    rect(252 - (cam * 0.05) % 420, moonY - 2, 6, 14, PAL.gold2);
-    rect(246 - (cam * 0.05) % 420, moonY + 4, 18, 2, PAL.gold2);
+    // Soft glow: cross-stacked translucent rects approximate a round halo
+    ctx.save();
+    ctx.globalAlpha = 0.03;
+    rect(mx - 9, moonY - 3, 28, 20, PAL.gold2);
+    rect(mx - 3, moonY - 9, 16, 32, PAL.gold2);
+    ctx.globalAlpha = 0.07;
+    rect(mx - 4, moonY - 3, 18, 18, PAL.gold2);
+    ctx.restore();
+    rect(mx, moonY, 10, 10, PAL.gold2);
+    rect(mx + 2, moonY - 2, 6, 14, PAL.gold2);
+    rect(mx - 4, moonY + 4, 18, 2, PAL.gold2);
+
+    drawCloud(300 - (cam * 0.10) % 420, 58 + altitude * 0.12);
     drawCloud(44 - (cam * 0.16) % 420, 44 + altitude * 0.18);
     drawCloud(180 - (cam * 0.13) % 420, 30 + altitude * 0.14);
     drawMountains(cam, altitude);
@@ -1473,11 +2044,23 @@
 
   function drawMountains(cam, altitude = 0) {
     const base = 120 + altitude * 0.32;
+    // Far ridge: slowest parallax, almost sky-colored
+    for (let i = -1; i < 7; i += 1) {
+      const x = i * 96 - Math.floor((cam * 0.16) % 96);
+      tri(x, base + 4, x + 52, 90 + (i % 3) * 7, x + 104, base + 4, "#131c3a");
+    }
     for (let i = -1; i < 8; i += 1) {
       const x = i * 72 - Math.floor((cam * 0.28) % 72);
       tri(x, base, x + 36, 70 + (i % 2) * 14, x + 76, base, PAL.mountain);
       tri(x + 24, base, x + 62, 82 + (i % 3) * 8, x + 102, base, PAL.mountain2);
     }
+    // Soft fog band where the mountains meet the valley floor
+    ctx.save();
+    ctx.globalAlpha = 0.13;
+    rect(0, base - 6, W, 8, "#4d6fa8");
+    ctx.globalAlpha = 0.08;
+    rect(0, base - 11, W, 6, "#4d6fa8");
+    ctx.restore();
   }
 
   function drawWorld() {
@@ -1548,6 +2131,45 @@
       if (x < -20 || x > W + 20) continue;
       drawCrystal(x, 135 + Math.sin(wx * 0.04) * 8 - cameraY);
     }
+    drawCheckpoints();
+    drawFireflies();
+  }
+
+  function drawCheckpoints() {
+    for (const cx of CHECKPOINTS) {
+      const x = Math.floor(cx - cameraX);
+      if (x < -24 || x > W + 24) continue;
+      const gy = Math.floor(groundYAt(cx) - cameraY);
+      const reached = checkpointX >= cx;
+      const poleC = reached ? PAL.gold : "#5c688c";
+      const flagC = reached ? PAL.gold2 : PAL.blue2;
+      rect(x - 3, gy - 2, 8, 3, "#4c2f27");
+      rect(x, gy - 36, 2, 35, poleC);
+      rect(x - 1, gy - 37, 4, 2, flagC);
+      const wave = Math.sin(time * 4 + cx) * 2;
+      tri(x + 2, gy - 35, x + 15 + wave, gy - 31, x + 2, gy - 26, flagC);
+      if (reached && Math.floor(time * 3) % 2 === 0) {
+        rect(x + 6 + wave, gy - 32, 2, 2, PAL.white);
+      }
+    }
+  }
+
+  function drawFireflies() {
+    for (const f of fireflies) {
+      const fx = f.x + Math.sin(time * 0.7 + f.phase) * f.drift;
+      const x = Math.floor(fx - cameraX);
+      if (x < -8 || x > W + 8) continue;
+      const fy = f.y + Math.cos(time * 0.9 + f.phase * 1.3) * 6;
+      const y = Math.floor(fy - cameraY);
+      const glow = 0.5 + Math.sin(time * 2.3 + f.phase) * 0.5;
+      if (glow < 0.25) continue;
+      ctx.save();
+      ctx.globalAlpha = glow * 0.4;
+      rect(x - 1, y - 1, 3, 3, "#b8ff9a");
+      ctx.globalAlpha = Math.min(1, glow);
+      rect(x, y, 1, 1, "#eaffcf");
+      ctx.restore();
+    }
   }
 
   function drawHazards() {
@@ -1580,6 +2202,8 @@
     rect(x + 3, y - 5, 3, 16, PAL.blue);
     rect(x + 6, y + 2, 3, 9, PAL.blue3);
     rect(x - 2, y + 10, 14, 2, PAL.white);
+    // Passing shimmer
+    if (Math.floor(time * 3 + x * 0.7) % 5 === 0) rect(x + 3, y - 4, 1, 5, PAL.white);
   }
 
   function drawShards() {
@@ -1588,17 +2212,61 @@
       const x = Math.floor(s.x - cameraX);
       const y = Math.floor(s.y + Math.sin(time * 4 + s.bob) * 4 - cameraY);
       if (x < -12 || x > W + 12 || y < -16 || y > H + 16) continue;
+      // Soft glow halo (cross shape reads rounder than a single box)
+      ctx.save();
+      ctx.globalAlpha = 0.08 + Math.sin(time * 3 + s.bob) * 0.03;
+      rect(x - 6, y - 6, 12, 12, PAL.gold);
+      rect(x - 4, y - 9, 8, 18, PAL.gold);
+      ctx.restore();
       rect(x - 3, y - 6, 6, 12, PAL.gold2);
       rect(x - 6, y - 2, 12, 4, PAL.gold);
       rect(x - 2, y - 3, 4, 6, PAL.white);
+      // Rotating glint
+      const g = Math.floor((time * 5 + s.bob) % 4);
+      if (g === 0) rect(x - 4, y - 5, 2, 2, PAL.white);
+      else if (g === 2) rect(x + 2, y + 2, 2, 2, PAL.white);
     }
   }
 
+  function drawHeartPickups() {
+    for (const h of hearts) {
+      const x = Math.floor(h.x - cameraX);
+      if (x < -12 || x > W + 12) continue;
+      const y = Math.floor(h.y + Math.sin(h.t * 3) * 3 - cameraY);
+      if (h.life < 3 && Math.floor(time * 6) % 2 === 0) continue; // expiring blink
+      ctx.save();
+      ctx.globalAlpha = 0.16;
+      rect(x - 7, y - 7, 14, 14, PAL.red);
+      ctx.restore();
+      drawPixelHeart(x, y, PAL.red, PAL.red2);
+    }
+  }
+
+  function drawPixelHeart(x, y, main, hi) {
+    rect(x - 4, y - 4, 3, 3, main);
+    rect(x + 1, y - 4, 3, 3, main);
+    rect(x - 5, y - 2, 10, 3, main);
+    rect(x - 3, y + 1, 6, 2, main);
+    rect(x - 1, y + 3, 2, 2, main);
+    rect(x - 3, y - 3, 2, 2, hi);
+  }
+
   function drawFires() {
+    const sheet = imgReady(charFireSheet) ? charFireSheet : fireSheet;
     for (const f of fires) {
       const x = Math.floor(f.x - cameraX);
       const y = Math.floor(f.y - cameraY);
-      if (fireSheet.complete && fireSheet.naturalWidth > 0) {
+      if (f.lava) {
+        // molten glow halo behind the ball
+        const pulse = 1 + Math.sin((f.age || 0) * 22) * 0.15;
+        ctx.save();
+        ctx.globalAlpha = 0.30;
+        rect(x - (f.w * 0.8 * pulse) / 2, y - (f.h * 0.9 * pulse) / 2, f.w * 0.8 * pulse, f.h * 0.9 * pulse, "#ff7a1f");
+        ctx.globalAlpha = 0.18;
+        rect(x - (f.w * 1.15 * pulse) / 2, y - (f.h * 1.3 * pulse) / 2, f.w * 1.15 * pulse, f.h * 1.3 * pulse, PAL.gold2);
+        ctx.restore();
+      }
+      if (sheet.complete && sheet.naturalWidth > 0) {
         const frame = Math.floor((f.age || 0) * 18) % FIRE_FRAMES;
         const sx = frame * FIRE_FRAME_W;
         const dx = Math.floor(x - f.w / 2);
@@ -1607,9 +2275,9 @@
         if ((f.dir || 1) < 0) {
           ctx.translate(dx + f.w, dy);
           ctx.scale(-1, 1);
-          ctx.drawImage(fireSheet, sx, 0, FIRE_FRAME_W, FIRE_FRAME_H, 0, 0, f.w, f.h);
+          ctx.drawImage(sheet, sx, 0, FIRE_FRAME_W, FIRE_FRAME_H, 0, 0, f.w, f.h);
         } else {
-          ctx.drawImage(fireSheet, sx, 0, FIRE_FRAME_W, FIRE_FRAME_H, dx, dy, f.w, f.h);
+          ctx.drawImage(sheet, sx, 0, FIRE_FRAME_W, FIRE_FRAME_H, dx, dy, f.w, f.h);
         }
         ctx.restore();
       } else {
@@ -1664,7 +2332,11 @@
     if (mode === MODE.EVOLVE) return { name: flying ? "flight" : "idle", elapsed: time, loop: true };
     if (mode === MODE.END || player.hp <= 0) return { name: "dead", elapsed: player.deadAnim, once: true };
     if (player.hurtAnim > 0) return { name: "hurt", elapsed: HURT_ANIM_TIME - player.hurtAnim, once: true };
-    if (player.attackAnim > 0) return { name: "attack", elapsed: ATTACK_ANIM_TIME - player.attackAnim, once: true };
+    if (player.attackAnim > 0) {
+      // Mid-air shots use the dedicated fly-attack row when the atlas has one
+      const name = !player.ground ? "flyattack" : "attack";
+      return { name, elapsed: ATTACK_ANIM_TIME - player.attackAnim, once: true };
+    }
     if (!player.ground) {
       if (player.jumpAnim > 0) return { name: "jump", elapsed: JUMP_ANIM_TIME - player.jumpAnim, once: true };
       return { name: "flight", elapsed: time, loop: true };
@@ -1675,7 +2347,7 @@
 
   function drawAtlasDragonSprite(x, y, stage, face, flying, atlas) {
     const state = animationStateFor(stage, flying);
-    const size = 80 + Math.min(stage, 5) * 5;
+    const size = STAGE_DRAW[Math.min(stage, STAGE_DRAW.length - 1)];
     const bob = state.name === "flight" ? Math.round(Math.sin(time * 14) * 2) : 0;
     const visualBottom = state.name === "flight" || state.name === "jump" ? 0.88 : 0.96;
     drawAtlasFrame(stage, atlas, state, x + player.w / 2, y + player.h + bob, size, face, visualBottom);
@@ -1685,7 +2357,9 @@
     const character = CHARACTERS[stage];
     const animations = characterAnimations(stage);
     if (!animations) return false;
-    const anim = animations[state.name] || animations.idle;
+    const anim = animations[state.name]
+      || (state.name === "flyattack" ? animations.attack : null)
+      || animations.idle;
     if (!anim) return false;
     const frameW = character.frameWidth || 160;
     const frameH = character.frameHeight || 160;
@@ -1730,7 +2404,7 @@
     else if (flying) frame = 5 + (Math.floor(time * 8) % 2);
     else if (moving) frame = 2 + (Math.floor(time * 10) % 3);
 
-    const size = 72 + Math.min(stage, 5) * 5;
+    const size = Math.round(STAGE_DRAW[Math.min(stage, STAGE_DRAW.length - 1)] * 0.9);
     const bob = flying ? Math.round(Math.sin(time * 14) * 2) : Math.round(Math.sin(time * 4) * 1);
     const visualBottom = flying ? 0.80 : 0.84;
     const dx = Math.floor(x + player.w / 2 - size / 2);
@@ -1747,9 +2421,20 @@
     ctx.restore();
   }
 
+  function blockPalette() {
+    const bc = currentChar().bodyColors || {};
+    return {
+      main: bc.main || PAL.blue,
+      light: bc.light || PAL.blue2,
+      dark: bc.dark || PAL.blue3,
+      wing: bc.wing || PAL.purple
+    };
+  }
+
   function drawBlockDragonSprite(x, y, stage, face, flying) {
     const s = stage;
     const flip = face < 0;
+    const C = blockPalette();
     const bob = flying ? Math.round(Math.sin(time * 16) * 2) : Math.round(Math.sin(time * 6) * 1);
     ctx.save();
     ctx.translate(Math.floor(x), Math.floor(y + bob));
@@ -1760,18 +2445,18 @@
     const wingOpen = flying ? 11 + Math.round(Math.sin(time * 16) * 4) : 7 + Math.round(Math.sin(time * 4) * 1);
 
     // Tail
-    rect(-14 - s * 3, 10, 14 + s * 4, 4, PAL.blue3);
-    rect(-20 - s * 4, 8, 8, 3, s >= 2 ? PAL.red : PAL.blue);
-    rect(-21 - s * 4, 13, 7, 3, PAL.blue);
+    rect(-14 - s * 3, 10, 14 + s * 4, 4, C.dark);
+    rect(-20 - s * 4, 8, 8, 3, s >= 2 ? PAL.red : C.main);
+    rect(-21 - s * 4, 13, 7, 3, C.main);
     for (let i = 0; i < 4 + s; i += 1) rect(-9 - i * 4, 7 - (i % 2), 2, 2, PAL.gold);
 
     // Far wing
     drawWing(-2, 4, wingOpen, s, true);
 
     // Body and belly
-    rect(0, 5, bodyW, bodyH, PAL.blue);
-    rect(2, 3, bodyW - 5, 4, PAL.blue2);
-    rect(4, 9, bodyW - 4, bodyH - 4, PAL.blue3);
+    rect(0, 5, bodyW, bodyH, C.main);
+    rect(2, 3, bodyW - 5, 4, C.light);
+    rect(4, 9, bodyW - 4, bodyH - 4, C.dark);
     rect(bodyW - 7, 6, 7, bodyH - 3, PAL.cream);
     for (let i = 0; i < 4 + s; i += 1) rect(bodyW - 8, 8 + i * 3, 7, 1, "#b9d7d8");
     for (let i = 0; i < 6 + s; i += 1) rect(2 + i * 4, 2 - (i % 2), 2, 3, PAL.gold);
@@ -1781,9 +2466,9 @@
     drawLeg(bodyW - 6, 16, flying, 1);
 
     // Neck and head
-    rect(bodyW - 1, 0, 7 + s, 6, PAL.blue);
-    rect(bodyW + 4 + s, -5, 14 + s * 2, 10, PAL.blue2);
-    rect(bodyW + 15 + s, -2, 7 + s, 5, PAL.blue);
+    rect(bodyW - 1, 0, 7 + s, 6, C.main);
+    rect(bodyW + 4 + s, -5, 14 + s * 2, 10, C.light);
+    rect(bodyW + 15 + s, -2, 7 + s, 5, C.main);
     rect(bodyW + 19 + s, 2, 3, 2, PAL.black);
     rect(bodyW + 11 + s, -3, 3, 3, PAL.red);
     rect(bodyW + 12 + s, -3, 1, 1, PAL.white);
@@ -1803,6 +2488,7 @@
   }
 
   function drawWing(x, y, open, stage, far) {
+    const C = blockPalette();
     const alpha = far ? 0.6 : 1;
     ctx.globalAlpha = alpha;
     rect(x, y - open, 4, open, PAL.gold);
@@ -1814,15 +2500,16 @@
       [x - 14 - stage * 3, y - open + 2],
       [x - 18 - stage * 4, y + 10],
       [x - 8, y + 7]
-    ], stage >= 2 ? PAL.red : PAL.purple);
-    rect(x - 10, y - open + 1, 4, 3, PAL.blue2);
+    ], stage >= 2 ? C.wing : C.wing);
+    rect(x - 10, y - open + 1, 4, 3, C.light);
     ctx.globalAlpha = 1;
   }
 
   function drawLeg(x, y, flying, phase) {
+    const C = blockPalette();
     const lift = flying ? -4 + phase * 2 : Math.round(Math.sin(time * 10 + phase * Math.PI) * 2);
-    rect(x, y, 4, 8 + lift, PAL.blue3);
-    rect(x - 1, y + 7 + lift, 7, 3, PAL.blue);
+    rect(x, y, 4, 8 + lift, C.dark);
+    rect(x - 1, y + 7 + lift, 7, 3, C.main);
     rect(x + 4, y + 8 + lift, 2, 2, PAL.gold2);
   }
 
@@ -1848,12 +2535,15 @@
   }
 
   function drawEggHatchFrame(x, y, frame) {
-    if (!eggHatchSheet.complete || eggHatchSheet.naturalWidth < EGG_FRAME) return false;
+    // Prefer the character's own egg sheet; fall back to the default one
+    const sheet = imgReady(charEggSheet) ? charEggSheet
+      : imgReady(defaultEggSheet) ? defaultEggSheet : null;
+    if (!sheet || sheet.naturalWidth < EGG_FRAME) return false;
     const size = 104;
     const dx = Math.floor(x - size / 2);
     const dy = Math.floor(y - 68);
     ctx.drawImage(
-      eggHatchSheet,
+      sheet,
       frame * EGG_FRAME,
       0,
       EGG_FRAME,
@@ -1981,20 +2671,60 @@
   }
 
   function drawHud() {
-    rect(4, 4, 78, 24, PAL.uiDark);
-    text("HP", 8, 8, PAL.white, 1);
-    for (let i = 0; i < 5; i += 1) rect(24 + i * 8, 8, 6, 5, i < player.hp ? PAL.red : "#432033");
-    text("FLAP", 8, 18, PAL.white, 1);
-    bar(42, 18, 36, 5, player.stamina, PAL.blue, PAL.gold2);
+    rect(4, 4, 84, 26, PAL.uiDark);
+    // Hearts row; the heart at the edge of change blinks white briefly
+    for (let i = 0; i < 5; i += 1) {
+      const hx = 14 + i * 12;
+      if (i < player.hp) {
+        const blink = hpFlash > 0 && i === player.hp - 1 && Math.floor(time * 10) % 2 === 0;
+        drawPixelHeart(hx, 12, blink ? PAL.white : PAL.red, PAL.red2);
+      } else {
+        drawPixelHeart(hx, 12, "#3a1c2c", "#4a2438");
+      }
+    }
+    text("FLAP", 8, 21, PAL.white, 1);
+    bar(44, 22, 40, 5, player.stamina, PAL.blue, PAL.gold2);
     text(stageNames[player.stage], 110, 5, PAL.gold2, 1);
-    text("GEMS " + score, 246, 5, PAL.gold2, 1);
+    // Gem counter with a mini gem icon; counter pops white on pickup
+    rect(238, 6, 3, 7, PAL.gold2);
+    rect(236, 8, 7, 3, PAL.gold);
+    text(String(score), 248, 5, gemPulse > 0 ? PAL.white : PAL.gold2, 1);
     const need = stageNeed[player.stage];
-    bar(110, 16, 74, 5, need >= 999 ? 1 : player.xp / need, PAL.red, PAL.gold2);
+    const ratio = need >= 999 ? 1 : player.xp / need;
+    // XP bar flashes when evolution is close
+    const xpHi = ratio >= 0.8 && need < 999 && Math.floor(time * 6) % 2 === 0 ? PAL.white : PAL.gold2;
+    bar(110, 16, 74, 5, ratio, PAL.red, xpHi);
     text("J FIRE", 248, 16, PAL.red2, 1);
   }
 
   function drawEvolve() {
+    const t = hatchTimer;
     rect(0, 0, W, H, "rgba(0,0,0,0.55)");
+    // White flash at the instant of evolution
+    if (t < 0.14) {
+      ctx.save();
+      ctx.globalAlpha = 1 - t / 0.14;
+      rect(0, 0, W, H, PAL.white);
+      ctx.restore();
+    }
+    // Expanding golden rings from the dragon
+    const cxp = 160;
+    const cyp = 112;
+    ctx.save();
+    for (let r = 0; r < 3; r += 1) {
+      const rt = t - r * 0.18;
+      if (rt <= 0) continue;
+      ctx.globalAlpha = Math.max(0, 0.55 - rt * 0.45);
+      ring(cxp, cyp, rt * 150, r % 2 ? PAL.gold2 : PAL.blue2);
+    }
+    ctx.restore();
+    // Radial sparks
+    for (let i = 0; i < 10; i += 1) {
+      const a = i * 0.63 + time * 2.5;
+      const rr = 26 + ((t * 90 + i * 13) % 55);
+      rect(cxp + Math.cos(a) * rr, cyp + Math.sin(a) * rr * 0.7, 2, 2, i % 2 ? PAL.gold2 : PAL.white);
+    }
+    text("EVOLUTION!", 89, 50, "#552340", 3);
     text("EVOLUTION!", 87, 48, PAL.gold2, 3);
     text(stageNames[player.stage], 120, 78, PAL.blue2, 2);
     drawDragonSprite(145, 122, player.stage, 1, true);
@@ -2009,21 +2739,37 @@
 
   function drawEnd() {
     rect(0, 0, W, H, "rgba(0,0,0,0.62)");
-    text("ALTOS RESTS", 76, 58, PAL.red2, 3);
-    text("SCORE " + score, 120, 94, PAL.gold2, 2);
-    blinkText("R TO RETRY", 112, 128, PAL.white);
+    text("ALTOS RESTS", 78, 56, "#552340", 3);
+    text("ALTOS RESTS", 76, 54, PAL.red2, 3);
+    text("SCORE " + score, 120, 90, PAL.gold2, 2);
+    blinkText("ENTER: RISE AT CHECKPOINT", 62, 122, PAL.white);
+    text("R: START OVER", 106, 140, "#7a86b8", 1);
   }
 
   function drawWin() {
     const flash = Math.max(0, 1 - winTimer);
     if (flash > 0) rect(0, 0, W, H, "rgba(255,210,90," + (flash * 0.55).toFixed(3) + ")");
     rect(0, 0, W, H, "rgba(0,0,0,0.55)");
+    // Confetti rain
+    if (Math.random() > 0.35) {
+      particles.push({
+        x: cameraX + Math.random() * W,
+        y: cameraY + 4,
+        vx: -20 + Math.random() * 40,
+        vy: 26 + Math.random() * 36,
+        life: 1.8,
+        g: 26,
+        c: [PAL.gold2, PAL.blue2, PAL.red2, PAL.grass][Math.floor(Math.random() * 4)],
+        s: 2
+      });
+    }
+    drawParticlesWorld(); // redraw on top of the dim overlay so confetti pops
+    text("VICTORY", 103, 53, "#552340", 4);
     text("VICTORY", 100, 50, PAL.gold2, 4);
     text("THE ANCIENT FALLS", 78, 88, PAL.red2, 2);
     text("SCORE " + score, 120, 112, PAL.white, 2);
     text("BEST " + best, 130, 130, PAL.gold2, 1);
     blinkText("R TO PLAY AGAIN", 96, 150, PAL.white);
-    if (Math.random() > 0.6) addDust(40 + Math.random() * (W - 80), 30 + Math.random() * 60, 1, Math.random() > 0.5 ? PAL.gold2 : PAL.red2);
   }
 
   function drawBorder() {
@@ -2055,6 +2801,14 @@
   function rect(x, y, w, h, c) {
     ctx.fillStyle = c;
     ctx.fillRect(Math.floor(x), Math.floor(y), Math.ceil(w), Math.ceil(h));
+  }
+
+  function ring(x, y, r, c) {
+    ctx.strokeStyle = c;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(1, r), 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   function line(x1, y1, x2, y2, c) {
@@ -2125,6 +2879,7 @@
     else if (mode === MODE.SELECT && right) chooseCharacter(1);
     else if (mode === MODE.EGG && enter) warmEgg(10);
     else if (mode === MODE.EVOLVE && enter) mode = MODE.PLAY;
+    else if (mode === MODE.END && enter) continueFromCheckpoint();
     else if (e.code === "KeyR") reset();
     else if (e.code === "KeyP") {
       if (mode === MODE.PLAY) {
@@ -2168,7 +2923,7 @@
       else if (mode === MODE.EGG) warmEgg(14);
       else if (mode === MODE.EVOLVE) mode = MODE.PLAY;
       else if (mode === MODE.PAUSE) mode = prevMode;
-      else if (mode === MODE.END) reset();
+      else if (mode === MODE.END) continueFromCheckpoint();
       return;
     }
 
@@ -2257,6 +3012,55 @@
     draw();
     requestAnimationFrame(frame);
   }
+
+  // Restore the last-selected character (if still unlocked)
+  (() => {
+    let startIdx = 0;
+    try {
+      const savedId = localStorage.getItem("altos8bitChar");
+      const idx = ROSTER.findIndex(c => c.id === savedId);
+      if (idx >= 0 && isUnlocked(ROSTER[idx])) startIdx = idx;
+    } catch (_) {}
+    setCharacter(startIdx);
+  })();
+  // Dev introspection hook (harmless in production).
+  // Optional cmd: { play, stage, char, x } to drive automated playtests.
+  window.__altosDebug = (cmd) => {
+    if (cmd) {
+      if (cmd.char !== undefined) {
+        const idx = ROSTER.findIndex(c => c.id === cmd.char);
+        if (idx >= 0) setCharacter(idx);
+      }
+      if (cmd.play) {
+        mode = MODE.PLAY;
+        if (player.hp <= 0) player.hp = 5;
+        player.invuln = 1.5;
+        player.deadAnim = 0;
+        musicSyncToMode();
+      }
+      if (cmd.stage !== undefined) {
+        player.stage = clamp(cmd.stage, 0, CHARACTERS.length - 1);
+        applyStageBox();
+        player.y = Math.min(player.y, GROUND_Y - player.h);
+      }
+      if (cmd.x !== undefined) {
+        player.x = cmd.x;
+        checkpointX = cmd.x;
+      }
+    }
+    return {
+      mode, hatchTimer, warmth, time,
+      charId: currentChar().id, stage: player.stage,
+      px: Math.round(player.x), py: Math.round(player.y),
+      pw: player.w, ph: player.h, drawSize: playerDrawSize(),
+      hp: player.hp, stamina: +player.stamina.toFixed(2),
+      ground: player.ground, cooldown: +fireCooldown.toFixed(2),
+      enemies: enemies.filter(e => !e.dead).length,
+      melting: enemies.filter(e => e.dead && e.melt).length,
+      fires: fires.length,
+      freeze, accumulator
+    };
+  };
 
   seedStars();
   reset();

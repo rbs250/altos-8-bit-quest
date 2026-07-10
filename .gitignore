@@ -7,6 +7,7 @@ qa-*.png
 qa-*.json
 assets/generated-sources/
 tools/sprite-backups/
+assets/sprites/backup_pre_reslice/
 ship.bat
 SHIP.md
 tools/__pycache__/
