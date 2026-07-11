@@ -8,7 +8,8 @@
 //   row 4 flyattack(8) · 5 hurt(4) · 6 jump(6) · 7 dead(4)
 // Older 8x7 atlases (altos_0N_atlas.png) remain on disk as a fallback; the
 // game falls back atlas → sheet → block-art per stage, so a missing file
-// never breaks a character.
+// never breaks a character. Runtime counts below intentionally use shorter,
+// curated cycles so the enlarged evolved forms remain stable and complete.
 
 (function () {
   // Baby stages (1-2): dense generated cycles. Adult stages (3-6): frame
@@ -16,21 +17,21 @@
   var SMOOTH_ANIMS = {
     idle:      { row: 0, frames: 4, fps: 5 },
     walk:      { row: 1, frames: 6, fps: 11 },
-    flight:    { row: 2, frames: 9, fps: 12 },
-    attack:    { row: 3, frames: 8, fps: 16, once: true },
-    flyattack: { row: 4, frames: 8, fps: 16, once: true },
-    hurt:      { row: 5, frames: 4, fps: 10, once: true },
-    jump:      { row: 6, frames: 6, fps: 11, once: true },
+    flight:    { row: 2, frames: 6, fps: 10 },
+    attack:    { row: 3, frames: 6, fps: 14, once: true },
+    flyattack: { row: 4, frames: 6, fps: 14, once: true },
+    hurt:      { row: 5, frames: 3, fps: 8, once: true },
+    jump:      { row: 6, frames: 4, fps: 9, once: true },
     dead:      { row: 7, frames: 2, fps: 2,  once: true }
   };
   var CRAFT_ANIMS = {
     idle:      { row: 0, frames: 4, fps: 5 },
     walk:      { row: 1, frames: 5, fps: 10 },
-    flight:    { row: 2, frames: 9, fps: 12 },
-    attack:    { row: 3, frames: 7, fps: 14, once: true },
-    flyattack: { row: 4, frames: 7, fps: 14, once: true },
+    flight:    { row: 2, frames: 6, fps: 10 },
+    attack:    { row: 3, frames: 6, fps: 13, once: true },
+    flyattack: { row: 4, frames: 6, fps: 13, once: true },
     hurt:      { row: 5, frames: 3, fps: 8,  once: true },
-    jump:      { row: 6, frames: 6, fps: 11, once: true },
+    jump:      { row: 6, frames: 4, fps: 9, once: true },
     dead:      { row: 7, frames: 2, fps: 2,  once: true }
   };
 

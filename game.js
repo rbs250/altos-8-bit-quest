@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "art-full-20260711";
+  const ASSET_VERSION = "release-big-dragons-20260711";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -103,9 +103,15 @@
     return true;
   }
 
-  function drawFittedAsset(img, x, y, w, h) {
+  function drawFittedAsset(img, x, y, w, h, smooth) {
     if (!imgReady(img) || w <= 0 || h <= 0) return false;
+    ctx.save();
+    if (smooth) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+    }
     ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, Math.floor(x), Math.floor(y), Math.ceil(w), Math.ceil(h));
+    ctx.restore();
     return true;
   }
 
@@ -160,12 +166,15 @@
     far: loadImg("assets/bg/far.png"),
     mid: loadImg("assets/bg/mid.png"),
     near: loadImg("assets/bg/near.png"),
-    ground: loadImg("assets/tiles/tile_ground.png"),
-    normal: loadImg("assets/tiles/ledge_normal.png"),
-    trampoline: loadImg("assets/tiles/ledge_trampoline.png"),
-    crumble: loadImg("assets/tiles/ledge_crumble.png"),
-    spiketop: loadImg("assets/tiles/ledge_spiketop.png"),
-    hazard: loadImg("assets/tiles/hazard_spike.png"),
+    ground: loadImg("assets/tiles/ground_tile_v2.png"),
+    normal: loadImg("assets/tiles/ledge_normal_v2.png"),
+    normalCrystal: loadImg("assets/tiles/ledge_crystal_v2.png"),
+    trampoline: loadImg("assets/tiles/ledge_trampoline_v2.png"),
+    crumble: loadImg("assets/tiles/ledge_crumble_v2.png"),
+    spiketop: loadImg("assets/tiles/ledge_spiketop_v2.png"),
+    hazard: loadImg("assets/tiles/hazard_spikes_v2.png"),
+    checkpoint: loadImg("assets/sprites/checkpoint_flag.png"),
+    crystal: loadImg("assets/sprites/crystal_cluster.png"),
     gem: loadImg("assets/sprites/gem.png"),
     heart: loadImg("assets/sprites/heart.png"),
     pearl: loadImg("assets/sprites/powerup_pearl.png"),
@@ -226,14 +235,13 @@
   const hearts = [];      // heart pickups dropped by enemies
   const fireflies = [];
 
-  // Evolution growth: draw sizes compensate for how much of the 160px atlas
-  // frame the art actually fills (babies ~82%, winged adults only ~58%), so
-  // the dragon visibly GROWS each stage instead of shrinking into wingspan
-  // whitespace. Hitboxes grow alongside, anchored at the feet.
-  const STAGE_DRAW = [44, 58, 100, 122, 146, 170];
+  // Evolution is intentionally dramatic. Visual size grows much faster than
+  // the forgiving collision body, and the camera lifts to keep adult wings in
+  // frame when the dragon is standing on the ground.
+  const STAGE_DRAW = [48, 70, 108, 138, 170, 202];
   const STAGE_BOX = [
-    { w: 22, h: 15 }, { w: 26, h: 18 }, { w: 32, h: 22 },
-    { w: 38, h: 26 }, { w: 44, h: 30 }, { w: 50, h: 34 }
+    { w: 22, h: 15 }, { w: 24, h: 17 }, { w: 27, h: 19 },
+    { w: 30, h: 21 }, { w: 32, h: 23 }, { w: 34, h: 25 }
   ];
 
   const player = {
@@ -372,7 +380,8 @@
     // Ground hazards: stationary spike strips placed on the wavy ground
     const spikeSpots = [620, 1390, 2305];
     for (const sx of spikeSpots) {
-      hazards.push({ type: "spike", x: sx, y: GROUND_Y - 8, w: 36, h: 8, t: 0 });
+      const h = 18;
+      hazards.push({ type: "spike", x: sx, y: groundYAt(sx) - h, w: 40, h, t: 0 });
     }
 
     for (let i = 0; i < 46; i += 1) {
@@ -1010,7 +1019,8 @@
     // Smooth camera: lead the player's facing + velocity, then round for
     // crisp pixels. Floats live in camXf/camYf.
     const lookX = clamp(player.x - 92 + player.face * 26 + player.vx * 0.14, 0, LEVEL_W - W);
-    const lookY = clamp(player.y - 88 + player.vy * 0.10, CAMERA_TOP_Y, 0);
+    const growthLift = Math.max(0, playerDrawSize() - 88) * 0.42;
+    const lookY = clamp(player.y - 88 - growthLift + player.vy * 0.10, CAMERA_TOP_Y, 0);
     camXf += (lookX - camXf) * Math.min(1, dt * 5.2);
     camYf += (lookY - camYf) * Math.min(1, dt * 5.0);
     cameraX = Math.round(camXf);
@@ -2170,7 +2180,7 @@
       const y = platformDrawY(p) - cameraY;
       if (y < -32 || y > H + 48) continue;
       if (p.ground) {
-        if (!drawTiledAsset(art.ground, x, y, p.w, Math.max(0, H - y))) {
+        if (!drawFittedAsset(art.ground, x, y - 2, p.w + 1, Math.max(42, H - y + 2), true)) {
           rect(x, y, p.w, Math.max(0, H - y), PAL.darkGrass);
           rect(x, y, p.w, 3, PAL.grass);
           if ((p.x / TILE) % 4 === 0) rect(x + 2, y - 3, 2, 3, PAL.grass);
@@ -2184,9 +2194,9 @@
           for (let tx = 4; tx < p.w; tx += 10) rect(x + tx, y + 3, 2, 2, "#7b4b2c");
         }
       } else if (p.type === "trampoline") {
-        if (!drawFittedAsset(art.trampoline, x, y, p.w, Math.max(12, p.h + 4))) {
+        const compress = Math.max(0, p.sink || 0);
+        if (!drawFittedAsset(art.trampoline, x, y - 5 + compress, p.w, Math.max(20, 29 - compress), true)) {
           // Compress visually based on sink (deeper sink = more compressed coil)
-          const compress = Math.max(0, p.sink || 0);
           rect(x, y + compress, p.w, 4, "#ff5e87");        // bumper top
           rect(x, y + 4 + compress, p.w, 2, "#ff8aa8");
           // springs (zigzag between top and base)
@@ -2197,7 +2207,7 @@
           rect(x, y + p.h, p.w, 1, "#4c2f27");
         }
       } else if (p.type === "spiketop") {
-        if (!drawFittedAsset(art.spiketop, x, y - 2, p.w, Math.max(12, p.h + 5))) {
+        if (!drawFittedAsset(art.spiketop, x, y - 16, p.w, 38, true)) {
           // Wood platform with spike strip on top
           rect(x, y + 2, p.w, p.h - 2, "#7b4b2c");
           rect(x, y + p.h - 1, p.w, 1, "#4c2f27");
@@ -2209,7 +2219,7 @@
           }
         }
       } else if (p.type === "crumble") {
-        if (!drawFittedAsset(art.crumble, x, y, p.w, Math.max(12, p.h + 4))) {
+        if (!drawFittedAsset(art.crumble, x, y - 4, p.w, 27, true)) {
           // Brown plank with cracks, shakes when crumbleT > 0
           const sx = (p.crumbleT > 0) ? Math.round((Math.random() - 0.5) * 2) : 0;
           rect(x + sx, y, p.w, p.h, "#8a5a2a");
@@ -2226,7 +2236,8 @@
           }
         }
       } else {
-        if (!drawFittedAsset(art.normal, x, y, p.w, Math.max(12, p.h + 4))) {
+        const ledgeAsset = Math.floor(p.x / 180) % 2 ? art.normalCrystal : art.normal;
+        if (!drawFittedAsset(ledgeAsset, x, y - 4, p.w, 27, true)) {
           rect(x, y, p.w, p.h, PAL.gold);
           rect(x, y + 2, p.w, p.h - 2, "#7b4b2c");
           rect(x, y + p.h, p.w, 1, "#4c2f27");
@@ -2253,6 +2264,14 @@
       const reached = checkpointX >= cx;
       const poleC = reached ? PAL.gold : "#5c688c";
       const flagC = reached ? PAL.gold2 : PAL.blue2;
+      if (imgReady(art.checkpoint)) {
+        ctx.save();
+        ctx.globalAlpha = reached ? 1 : 0.62;
+        drawFittedAsset(art.checkpoint, x - 12, gy - 48, 24, 48, true);
+        ctx.restore();
+        if (reached && Math.floor(time * 3) % 2 === 0) rect(x + 7, gy - 39, 2, 2, PAL.white);
+        continue;
+      }
       rect(x - 3, gy - 2, 8, 3, "#4c2f27");
       rect(x, gy - 36, 2, 35, poleC);
       rect(x - 1, gy - 37, 4, 2, flagC);
@@ -2288,7 +2307,7 @@
       if (x < -h.w || x > W) continue;
       const y = Math.floor(h.y - cameraY);
       if (y < -16 || y > H + 16) continue;
-      if (drawFittedAsset(art.hazard, x, y - 2, h.w, Math.max(12, h.h + 3))) continue;
+      if (drawFittedAsset(art.hazard, x, y - 2, h.w, h.h + 5, true)) continue;
       // Base / mount
       rect(x, y + h.h - 2, h.w, 2, "#3a2814");
       // Spikes
@@ -2309,6 +2328,10 @@
   }
 
   function drawCrystal(x, y) {
+    if (imgReady(art.crystal)) {
+      drawFittedAsset(art.crystal, x - 8, y - 10, 18, 18, true);
+      return;
+    }
     rect(x, y, 3, 11, PAL.blue2);
     rect(x + 3, y - 5, 3, 16, PAL.blue);
     rect(x + 6, y + 2, 3, 9, PAL.blue3);
@@ -2487,10 +2510,6 @@
     const frameFloat = (state.elapsed || 0) * fps;
     const rawFrame = Math.floor(frameFloat);
     const frame = anim.once || state.once ? Math.min(frameCount - 1, rawFrame) : rawFrame % frameCount;
-    const canBlend = !(anim.once || state.once) && frameCount > 1 && (state.name === "idle" || state.name === "walk" || state.name === "flight");
-    const blendPhase = frameFloat - rawFrame;
-    const blend = canBlend ? smoothstep(clamp((blendPhase - 0.62) / 0.38, 0, 1)) : 0;
-    const nextFrame = (frame + 1) % frameCount;
     const sy = anim.row * frameH;
     const dx = Math.floor(x - size / 2);
     const dy = Math.floor(y - size * visualBottom);
@@ -2510,8 +2529,7 @@
       ctx.translate(dx + size, dy);
       ctx.scale(-1, 1);
     }
-    drawFrame(frame, 1 - blend * 0.35);
-    if (blend > 0) drawFrame(nextFrame, blend * 0.35);
+    drawFrame(frame, 1);
     ctx.restore();
     return true;
   }
