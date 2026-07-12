@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "release-big-dragons-20260711";
+  const ASSET_VERSION = "hd-remix-20260713";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -339,105 +339,166 @@
     buildWorld();
   }
 
+  // -------------------------------------------------------------------
+  //  SEEDED LEVEL GENERATOR
+  // -------------------------------------------------------------------
+  // Every run rolls a fresh seed: the ledge course is stitched from a
+  // shuffled chunk library, the ground wave / gems / enemies / hazards are
+  // jittered deterministically from that seed, and a sky theme + music
+  // track are picked to match. Spawn (0..260) and boss arena (2880+) stay
+  // hand-authored so runs always start gently and end at the Ancient.
+  let levelSeed = ((Math.random() * 0xffffffff) >>> 0);
+  let runPlayTrack = "play";
+  let worldTheme = null;
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const LEVEL_THEMES = [
+    { name: "MOONLIT VALE",   tint: null },
+    { name: "EMBER DUSK",     tint: "rgba(255,120,60,0.07)" },
+    { name: "EMERALD NIGHT",  tint: "rgba(70,220,150,0.06)" },
+    { name: "AMETHYST SKY",   tint: "rgba(160,90,255,0.07)" },
+    { name: "FROST GLOW",     tint: "rgba(140,210,255,0.07)" },
+  ];
+
+  // Chunk library: repeatable course patterns. Coordinates are relative to
+  // the chunk origin; ledge y values stay inside the proven 70..120 band and
+  // consecutive gaps stay flap-friendly. w = how much level the chunk spans.
+  const LEVEL_CHUNKS = [
+    { w: 400, ledges: [[30,116,80],[180,92,72],[320,112,64]], drakes: [210], wisps: [] },                       // gentle rollers
+    { w: 420, ledges: [[40,110,64,"trampoline"],[190,74,88],[330,102,64]], drakes: [], wisps: [[290,72]] },     // bounce tower
+    { w: 440, ledges: [[30,112,88,"crumble"],[190,90,72,"crumble"],[350,110,72]], drakes: [260], wisps: [] },   // crumble bridge
+    { w: 420, ledges: [[50,118,96],[220,96,72,"spiketop"],[350,78,72]], drakes: [], wisps: [[160,84]] },        // spike shelf
+    { w: 380, ledges: [[40,104,72],[200,80,88]], drakes: [120], wisps: [[320,64]], spikes: [280] },             // gauntlet
+    { w: 400, ledges: [[60,90,110]], drakes: [230], wisps: [[110,70],[330,88]] },                               // wisp alley
+    { w: 430, ledges: [[30,114,64],[150,92,64],[280,72,64],[380,96,56]], drakes: [], wisps: [] },               // staircase
+    { w: 400, ledges: [[40,86,96],[240,110,88,"trampoline"]], drakes: [320], wisps: [[150,60]] },               // drop-and-pop
+    { w: 440, ledges: [[30,108,80,"spiketop"],[190,86,80],[350,112,80,"crumble"]], drakes: [], wisps: [[270,92]], spikes: [120] }, // mixed peril
+    { w: 380, ledges: [[80,100,120]], drakes: [], wisps: [] },                                                  // breather
+  ];
+
   function buildWorld() {
+    const rng = mulberry32(levelSeed);
     platforms.length = 0;
     shards.length = 0;
+    hazards.length = 0;
+    enemies.length = 0;
 
+    worldTheme = LEVEL_THEMES[Math.floor(rng() * LEVEL_THEMES.length)];
+    runPlayTrack = ["play", "play_b", "play_c"][Math.floor(rng() * 3)];
+
+    // Ground: same dual-sine character, seed-varied phase and gentle amps
+    const p1 = rng() * Math.PI * 2, p2 = rng() * Math.PI * 2;
+    const a1 = 4 + rng() * 3, a2 = 5 + rng() * 4;
     for (let x = 0; x < LEVEL_W; x += TILE) {
-      const wave = Math.sin(x * 0.018) * 5 + Math.sin(x * 0.006) * 7;
+      const wave = Math.sin(x * 0.018 + p1) * a1 + Math.sin(x * 0.006 + p2) * a2;
       platforms.push({ x, y: GROUND_Y + wave, w: TILE, h: 40, solid: true, ground: true });
     }
 
-    // ledge format: [x, y, w, type?]   â€” type defaults to "normal"
-    const ledges = [
-      [180, 116, 72],
-      [330, 94, 64, "trampoline"],
-      [500, 116, 96],
-      [675, 86, 72],
-      [850, 108, 88, "crumble"],
-      [1050, 74, 72],
-      [1225, 112, 80, "spiketop"],
-      [1440, 92, 96],
-      [1660, 110, 72, "trampoline"],
-      [1840, 78, 88],
-      [2045, 112, 80, "crumble"],
-      [2230, 88, 72],
-      [2440, 116, 104, "spiketop"],
-      [2660, 96, 80, "crumble"],
-      [2850, 76, 112]
-    ];
-    for (let i = 0; i < ledges.length; i += 1) {
-      const [x, y, w, type] = ledges[i];
+    let ledgeIdx = 0;
+    function addLedge(x, y, w, type) {
       platforms.push({
-        x, y, w, h: 8, solid: true, ground: false,
-        sink: 0, sinkVel: 0, phase: i * 0.7,
-        type: type || "normal",
-        crumbleT: 0,        // > 0 means crumbling, ticks down to 0
-        respawnT: 0,        // > 0 means hidden, ticks down then re-solid
+        x, y: clamp(Math.round(y), 70, 120), w, h: 8, solid: true, ground: false,
+        sink: 0, sinkVel: 0, phase: (ledgeIdx++) * 0.7,
+        type: type || "normal", crumbleT: 0, respawnT: 0,
+      });
+    }
+    function addDrake(cx, range) {
+      enemies.push({
+        type: "drake", x: cx, y: GROUND_Y - 16, w: 18, h: 14,
+        vx: 34 + rng() * 14, range: range || (50 + rng() * 40), anchorX: cx,
+        hp: 1, hurt: 0, dying: 0, dead: false, t: rng() * 6
+      });
+    }
+    function addWisp(x, y) {
+      enemies.push({
+        type: "wisp", x, y, w: 14, h: 14, anchorX: x, anchorY: y,
+        hp: 1, hurt: 0, dying: 0, dead: false, t: rng() * 6
       });
     }
 
-    // Ground hazards: stationary spike strips placed on the wavy ground
-    const spikeSpots = [620, 1390, 2305];
-    for (const sx of spikeSpots) {
-      const h = 18;
-      hazards.push({ type: "spike", x: sx, y: groundYAt(sx) - h, w: 40, h, t: 0 });
-    }
+    // Hand-authored gentle spawn zone
+    addLedge(180, 112 + rng() * 8 - 4, 72);
 
+    // Stitch shuffled chunks across the midfield. A light per-run "flavor"
+    // skews which ledge types show up so runs feel distinct.
+    const flavor = rng();
+    const deck = LEVEL_CHUNKS.map((c, i) => ({ c, k: rng() }));
+    deck.sort((u, v) => u.k - v.k);
+    let cursor = 300;
+    let di = 0;
+    while (cursor < 2760) {
+      const chunk = deck[di % deck.length].c;
+      di += 1;
+      if (cursor + chunk.w > 2860) break;
+      for (const L of chunk.ledges) {
+        let type = L[3] || "normal";
+        if (type === "normal") {
+          const roll = rng();
+          if (flavor < 0.25 && roll < 0.22) type = "trampoline";
+          else if (flavor >= 0.25 && flavor < 0.5 && roll < 0.22) type = "crumble";
+          else if (flavor >= 0.5 && flavor < 0.7 && roll < 0.16) type = "spiketop";
+        }
+        addLedge(cursor + L[0], L[1] + rng() * 10 - 5, L[2], type);
+      }
+      for (const dx of (chunk.drakes || [])) {
+        const cx = cursor + dx;
+        // keep patrols clear of checkpoint flags so respawns are safe
+        if (CHECKPOINTS.every((c) => Math.abs(cx - c) > 130)) addDrake(cx);
+      }
+      for (const wsp of (chunk.wisps || [])) addWisp(cursor + wsp[0], wsp[1] + rng() * 12 - 6);
+      for (const sx of (chunk.spikes || [])) {
+        const x = cursor + sx;
+        if (CHECKPOINTS.every((c) => Math.abs(x - c) > 130) && x > 400) {
+          const h = 18;
+          hazards.push({ type: "spike", x, y: groundYAt(x) - h, w: 40, h, t: 0 });
+        }
+      }
+      cursor += chunk.w;
+    }
+    // Closing ledge on the approach to the boss arena
+    addLedge(2850, 76 + rng() * 8, 112);
+
+    // Gems: a ground strand + a sky strand, phase-shifted per run,
+    // plus arcs over trampolines as a reward for bouncing high.
+    const gphase = rng() * 40;
     for (let i = 0; i < 46; i += 1) {
-      const x = 130 + i * 64 + ((i * 37) % 29);
-      const y = 58 + ((i * 47) % 74);
+      const x = 130 + i * 60 + ((i * 37 + gphase) % 29);
+      const y = 56 + ((i * 47 + gphase * 3) % 76);
       shards.push({ x, y, got: false, bob: i * 0.65 });
     }
     for (let i = 0; i < 24; i += 1) {
-      const x = 240 + i * 116 + ((i * 41) % 35);
-      const y = -45 - ((i * 67) % 390);
+      const x = 240 + i * 112 + ((i * 41 + gphase * 2) % 35);
+      const y = -45 - ((i * 67 + gphase * 5) % 390);
       shards.push({ x, y, got: false, bob: 4 + i * 0.72 });
     }
-
-    // Enemies: ground-patrolling drakes + flying wisps
-    enemies.length = 0;
-    const drakeSpots = [
-      { cx: 460,  range: 60 },
-      { cx: 980,  range: 70 },
-      { cx: 1480, range: 80 },
-      { cx: 2160, range: 70 },
-      { cx: 2640, range: 60 }
-    ];
-    for (const s of drakeSpots) {
-      enemies.push({
-        type: "drake", x: s.cx, y: GROUND_Y - 16, w: 18, h: 14,
-        vx: 38, range: s.range, anchorX: s.cx,
-        hp: 1, hurt: 0, dying: 0, dead: false, t: Math.random() * 6
-      });
-    }
-    const wispSpots = [
-      { x: 720,  y: 78  },
-      { x: 1300, y: 88  },
-      { x: 1780, y: 70  },
-      { x: 2380, y: 96  },
-      { x: 2780, y: 60  }
-    ];
-    for (const s of wispSpots) {
-      enemies.push({
-        type: "wisp", x: s.x, y: s.y, w: 14, h: 14,
-        anchorX: s.x, anchorY: s.y,
-        hp: 1, hurt: 0, dying: 0, dead: false, t: Math.random() * 6
-      });
+    for (const p of platforms) {
+      if (!p.ground && p.type === "trampoline" && rng() < 0.8) {
+        for (let k = 0; k < 3; k += 1) {
+          shards.push({ x: p.x + p.w / 2 - 14 + k * 14, y: p.y - 46 - k * 9 + (k === 2 ? 9 : 0), got: false, bob: k * 0.8 });
+        }
+      }
     }
 
-    // Ambient fireflies drifting near the ground line
+    // Ambient fireflies (seed-jittered)
     fireflies.length = 0;
     for (let i = 0; i < 44; i += 1) {
       fireflies.push({
-        x: 90 + i * 70 + ((i * 53) % 38),
-        y: GROUND_Y - 8 - ((i * 29) % 52),
+        x: 90 + i * 70 + rng() * 38,
+        y: GROUND_Y - 8 - rng() * 52,
         phase: i * 1.7,
         drift: 8 + (i % 5) * 3
       });
     }
 
-    // Boss: at the end of the level, beyond the last ledge
+    // Boss arena stays fixed: the Ancient waits at the end
     boss = {
       x: 3050, y: 70, w: 64, h: 56, baseY: 70,
       hp: 8, maxHp: 8,
@@ -616,6 +677,97 @@
       })()}
   );
 
+  // Two more overworld songs; one of the three is picked per run so every
+  // adventure has its own soundtrack.
+  const B2 = 123.47, Bb2 = 116.54, Bb3 = 233.08, Bb4 = 466.16;
+
+  // "Crystal Caverns" â€” A minor, moodier groove with a walking 8th bass.
+  MUSIC_TRACKS.play_b = {
+    bpm: 120, steps: 128,
+    parts: [
+      { wave: "triangle", gain: 0.034, notes: (() => {
+          const arr = [];
+          const bars = [
+            [A2, E3, A3, E3], [A2, E3, A3, E3], [F2, C3, F3, C3], [F2, C3, F3, C3],
+            [C3, G3, C4, G3], [G2, D3, G3, D3], [A2, E3, A3, E3], [E2, B2, E3, B2],
+          ];
+          bars.forEach((b, bar) => {
+            for (let k = 0; k < 8; k++) arr.push(_n(bar * 16 + k * 2, b[k % 4], 0.14));
+          });
+          return arr;
+        })()},
+      { wave: "square", gain: 0.022, notes: [
+          _n(0,A4,0.30), _n(4,C5,0.18), _n(6,E5,0.18), _n(8,A5,0.35), _n(12,G5,0.18), _n(14,E5,0.18),
+          _n(16,D5,0.18), _n(18,E5,0.18), _n(20,C5,0.30), _n(24,A4,0.40),
+          _n(32,F4,0.30), _n(36,A4,0.18), _n(38,C5,0.18), _n(40,F5,0.35), _n(44,E5,0.18), _n(46,C5,0.18),
+          _n(48,D5,0.18), _n(50,C5,0.18), _n(52,A4,0.30), _n(56,F4,0.40),
+          _n(64,E5,0.20), _n(66,G5,0.18), _n(68,C5,0.20), _n(70,E5,0.18), _n(72,G4,0.35),
+          _n(80,B4,0.20), _n(82,D5,0.18), _n(84,G4,0.30), _n(88,B4,0.20), _n(92,D5,0.30),
+          _n(96,A4,0.30), _n(100,C5,0.18), _n(102,E5,0.18), _n(104,A5,0.40),
+          _n(112,G5,0.18), _n(114,E5,0.18), _n(116,B4,0.30), _n(120,E5,0.50) ]},
+      { wave: "triangle", gain: 0.010, notes: [
+          _n(10,E5,0.08), _n(26,C5,0.08), _n(42,F5,0.08), _n(58,A4,0.08),
+          _n(74,G5,0.08), _n(90,D5,0.08), _n(106,E5,0.08), _n(122,B4,0.08) ]},
+      { wave: "kick", gain: 0.050, notes: (() => {
+          const arr = []; for (let i = 0; i < 8; i++) { arr.push(_n(i*16, 150, 0.09)); arr.push(_n(i*16+8, 150, 0.09)); }
+          return arr;
+        })()},
+      { wave: "noise", gain: 0.018, notes: (() => {   // snare on 2 & 4
+          const arr = []; for (let i = 0; i < 8; i++) { arr.push(_n(i*16+4, 0, 0.06)); arr.push(_n(i*16+12, 0, 0.06)); }
+          return arr;
+        })()},
+      { wave: "noise", gain: 0.009, notes: (() => {   // offbeat hats
+          const arr = []; for (let i = 0; i < 32; i++) arr.push(_n(i*4+2, 0, 0.03));
+          return arr;
+        })()},
+    ]
+  };
+
+  // "Cloud Hop" â€” F major, bouncy staccato hops with bell arps.
+  MUSIC_TRACKS.play_c = {
+    bpm: 138, steps: 128,
+    parts: [
+      { wave: "triangle", gain: 0.033, notes: (() => {
+          const arr = [];
+          const bars = [
+            [F2, F3], [F2, F3], [D3, D4], [D3, D4],
+            [Bb2, Bb3], [Bb2, Bb3], [C3, C4], [C3, C4],
+          ];
+          bars.forEach((b, bar) => {
+            arr.push(_n(bar*16,      b[0], 0.16));
+            arr.push(_n(bar*16 + 6,  b[1], 0.12));
+            arr.push(_n(bar*16 + 8,  b[0], 0.16));
+            arr.push(_n(bar*16 + 14, b[1], 0.10));
+          });
+          return arr;
+        })()},
+      { wave: "square", gain: 0.022, notes: [
+          _n(0,F4,0.12), _n(2,A4,0.12), _n(4,C5,0.12), _n(6,A4,0.12), _n(8,F5,0.25),
+          _n(18,E5,0.12), _n(20,C5,0.12), _n(22,A4,0.12), _n(24,C5,0.25),
+          _n(32,D5,0.12), _n(34,F5,0.12), _n(36,A5,0.25), _n(40,F5,0.12), _n(42,D5,0.12),
+          _n(48,E5,0.12), _n(50,D5,0.12), _n(52,A4,0.30),
+          _n(64,Bb4,0.12), _n(66,D5,0.12), _n(68,F5,0.25), _n(72,D5,0.12), _n(74,Bb4,0.12),
+          _n(80,C5,0.12), _n(82,Bb4,0.12), _n(84,G4,0.30),
+          _n(96,G4,0.12), _n(98,B4,0.12), _n(100,D5,0.12), _n(102,G5,0.25),
+          _n(112,E5,0.12), _n(114,D5,0.12), _n(116,B4,0.12), _n(120,C5,0.40) ]},
+      { wave: "triangle", gain: 0.012, notes: [
+          _n(0,C5,0.08), _n(16,A4,0.08), _n(32,F5,0.08), _n(48,C5,0.08),
+          _n(64,F5,0.08), _n(80,Bb4,0.08), _n(96,D5,0.08), _n(112,G4,0.08) ]},
+      { wave: "kick", gain: 0.048, notes: (() => {
+          const arr = []; for (let i = 0; i < 8; i++) { arr.push(_n(i*16, 150, 0.09)); arr.push(_n(i*16+10, 145, 0.08)); }
+          return arr;
+        })()},
+      { wave: "noise", gain: 0.017, notes: (() => {
+          const arr = []; for (let i = 0; i < 8; i++) { arr.push(_n(i*16+4, 0, 0.055)); arr.push(_n(i*16+12, 0, 0.055)); }
+          return arr;
+        })()},
+      { wave: "noise", gain: 0.008, notes: (() => {
+          const arr = []; for (let i = 0; i < 16; i++) { arr.push(_n(i*8+2, 0, 0.03)); arr.push(_n(i*8+6, 0, 0.03)); }
+          return arr;
+        })()},
+    ]
+  };
+
   // One-shot stings â€” same shape but `loop:false`; when one finishes the
   // engine re-syncs to the current mode's track (silence for END/WIN).
   const MUSIC_STINGS = {
@@ -742,7 +894,7 @@
     if (mode === MODE.SELECT || mode === MODE.EGG || mode === MODE.HATCH) return "title";
     if (mode === MODE.PLAY || mode === MODE.PAUSE || mode === MODE.EVOLVE) {
       if (boss && boss.awakened && !boss.dead) return "boss";
-      return "play";
+      return runPlayTrack; // per-run pick: play / play_b / play_c
     }
     return null;
   }
@@ -863,6 +1015,9 @@
   }
 
   function startPlay() {
+    // Every run is a new adventure: fresh seed -> fresh course, theme, song
+    levelSeed = ((Math.random() * 0xffffffff) >>> 0);
+    buildWorld();
     mode = MODE.PLAY;
     musicSyncToMode();
     player.x = 56;
@@ -884,6 +1039,7 @@
     cameraX = 0;
     cameraY = Math.round(camYf);
     addText(selectedName() + "!", player.x, player.y - 16, PAL.gold2);
+    if (worldTheme) addText(worldTheme.name, player.x + 4, player.y - 30, PAL.blue2);
   }
 
   function continueFromCheckpoint() {
@@ -1876,6 +2032,11 @@
     drawFires();
     drawDragonSprite(player.x - cameraX, player.y - cameraY, player.stage, player.face, !player.ground);
     drawParticlesWorld();
+    // Per-run atmosphere: a whisper of color over the whole scene (pre-HUD)
+    if (worldTheme && worldTheme.tint) {
+      ctx.fillStyle = worldTheme.tint;
+      ctx.fillRect(0, 0, W, H);
+    }
     drawHud();
     drawBossBar();
 
@@ -3185,7 +3346,11 @@
         player.x = cmd.x;
         checkpointX = cmd.x;
       }
+      if (cmd.reseed) startPlay(); // fresh run: new seed, world, theme, track
     }
+    const ledges = platforms.filter(p => !p.ground);
+    const types = {};
+    for (const p of ledges) types[p.type] = (types[p.type] || 0) + 1;
     return {
       mode, hatchTimer, warmth, time,
       charId: currentChar().id, stage: player.stage,
@@ -3196,6 +3361,11 @@
       enemies: enemies.filter(e => !e.dead).length,
       melting: enemies.filter(e => e.dead && e.melt).length,
       fires: fires.length,
+      seed: levelSeed, theme: worldTheme && worldTheme.name, track: runPlayTrack,
+      ledges: ledges.length, ledgeTypes: types,
+      drakes: enemies.filter(e => e.type === "drake").length,
+      wisps: enemies.filter(e => e.type === "wisp").length,
+      hazards: hazards.length, gems: shards.length,
       freeze, accumulator
     };
   };

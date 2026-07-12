@@ -40,13 +40,16 @@
   function makeStages(charId, charName, legacySheets) {
     return STAGE_EPITHETS.map(function (epithet, i) {
       var num = "0" + (i + 1);
+      // Evolved stages (3-6) use 512px atlas cells so the enlarged dragons
+      // stay crisp at their big draw sizes; babies use 256px cells.
+      var cell = i < 2 ? 256 : 512;
       return {
         id: charId + "_" + num,
         name: charName + " " + epithet,
         atlas: "assets/sprites/" + charId + "_" + num + "_atlas2.png",
         sheet: legacySheets ? "assets/sprites/" + charId + "_" + num + "_sheet.png" : null,
-        frameWidth: 160,
-        frameHeight: 160,
+        frameWidth: cell,
+        frameHeight: cell,
         animations: i < 2 ? SMOOTH_ANIMS : CRAFT_ANIMS
       };
     });
