@@ -15,3 +15,5 @@ tools/__pycache__/
 node_modules/
 .wrangler/
 qa-raf.html
+.claude/
+assets/sprites/backup_pre_krea/
