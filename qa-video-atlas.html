@@ -47,7 +47,26 @@
       </div>
     </div>
   </main>
-  <script src="./characters.js?v=qa"></script>
-  <script src="./game.js?v=qa"></script>
+  <script>
+    // Load the game scripts with a per-load cache-buster. With a fixed query
+    // the browser happily serves a stale game.js, which then requests atlases
+    // under an old ASSET_VERSION — that silently verified old art against new
+    // frame counts (blank cells) until it was caught.
+    (function () {
+      var cb = 'qa' + Date.now() + Math.random().toString(36).slice(2);
+      function load(src) {
+        return new Promise(function (res, rej) {
+          var s = document.createElement('script');
+          s.src = src + '?v=' + cb;
+          s.onload = res;
+          s.onerror = rej;
+          document.body.appendChild(s);
+        });
+      }
+      window.__qaReady = load('./characters.js').then(function () {
+        return load('./game.js');
+      });
+    })();
+  </script>
 </body>
 </html>

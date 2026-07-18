@@ -114,9 +114,10 @@
     }
   ];
 
-  // Altos ANCIENT (stage 06) uses the video-generated atlas: full 8-frame
-  // cycles for the loops, 6-frame one-shots. fps values are fitted to the
-  // game's fixed anim windows (hurt must finish inside HURT_ANIM_TIME 0.42s).
+  // Altos stages 02-06 use the video-generated atlases: full 8-frame cycles
+  // for the loops, 6-frame one-shots. fps values are fitted to the game's
+  // fixed anim windows (hurt must finish inside HURT_ANIM_TIME 0.42s).
+  // Stage 01 HATCHLING has no canon yet and keeps its original atlas.
   var VIDEO_ANIMS = {
     idle:      { row: 0, frames: 8, fps: 7 },
     walk:      { row: 1, frames: 8, fps: 10 },
@@ -127,7 +128,9 @@
     jump:      { row: 6, frames: 6, fps: 10, once: true },
     dead:      { row: 7, frames: 6, fps: 7,  once: true }
   };
-  window.ALTOS_ROSTER[0].stages[5].animations = VIDEO_ANIMS;
+  for (var vs = 1; vs <= 5; vs++) {
+    window.ALTOS_ROSTER[0].stages[vs].animations = VIDEO_ANIMS;
+  }
 
   // Legacy export: older game.js builds read ALTOS_CHARACTERS directly.
   window.ALTOS_CHARACTERS = window.ALTOS_ROSTER[0].stages;
