@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "video-anims-stages-20260719";
+  const ASSET_VERSION = "video-anims-final-20260719";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
