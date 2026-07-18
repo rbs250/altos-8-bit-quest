@@ -244,6 +244,30 @@
     { w: 30, h: 21 }, { w: 32, h: 23 }, { w: 34, h: 25 }
   ];
 
+  // The course adapts to how big the dragon has grown, on two separate curves.
+  //
+  // FIT scales what the dragon physically occupies or has to avoid: ledge
+  // width and thickness, enemy and hazard size. A Sky Lord perched on a
+  // hatchling-sized plank looks wrong, so this tracks body growth closely.
+  //
+  // GAP scales spacing, and deliberately barely moves. Jump height and flap
+  // power are fixed constants — they do not grow with evolution — so scaling
+  // gaps to match the body would quietly make the game harder every time the
+  // player earns a reward. Wider ledges and roomier headroom read as "the
+  // world makes way for you"; longer jumps would read as punishment.
+  const LEVEL_FIT_SCALE = [1.00, 1.12, 1.28, 1.44, 1.60, 1.76];
+  const LEVEL_GAP_SCALE = [1.00, 1.03, 1.08, 1.13, 1.18, 1.24];
+  // Vertical spacing is even more conservative than horizontal: a ledge that
+  // drifts too high stops being reachable from the ground at all.
+  const VERTICAL_GAP_BLEND = 0.6;
+
+  function levelFit(stage) {
+    return LEVEL_FIT_SCALE[Math.max(0, Math.min(LEVEL_FIT_SCALE.length - 1, stage))];
+  }
+  function levelGap(stage) {
+    return LEVEL_GAP_SCALE[Math.max(0, Math.min(LEVEL_GAP_SCALE.length - 1, stage))];
+  }
+
   const player = {
     x: 56,
     y: GROUND_Y - 15,
@@ -384,8 +408,115 @@
     { w: 380, ledges: [[80,100,120]], drakes: [], wisps: [] },                                                  // breather
   ];
 
+  let ledgeIdx = 0;
+
+  // Ledges carry `vs` (visual scale) as well as scaled collision, because the
+  // ledge art is drawn at fixed pixel heights rather than from p.h.
+  function addLedge(x, y, w, type, fit, gap) {
+    fit = fit || 1;
+    gap = gap || 1;
+    // Scale the ledge's height ABOVE THE GROUND, not its screen y, so bigger
+    // dragons get more clearance underneath instead of the band sliding.
+    const vgap = 1 + (gap - 1) * VERTICAL_GAP_BLEND;
+    const above = (GROUND_Y - y) * vgap;
+    platforms.push({
+      x, y: clamp(Math.round(GROUND_Y - above), 50, 124),
+      w: Math.round(w * fit), h: Math.round(8 * fit), vs: fit,
+      solid: true, ground: false,
+      sink: 0, sinkVel: 0, phase: (ledgeIdx++) * 0.7,
+      type: type || "normal", crumbleT: 0, respawnT: 0,
+    });
+  }
+
+  function addDrake(rng, cx, fit) {
+    fit = fit || 1;
+    enemies.push({
+      type: "drake", x: cx, y: GROUND_Y - Math.round(16 * fit),
+      w: Math.round(18 * fit), h: Math.round(14 * fit), vs: fit,
+      vx: 34 + rng() * 14, range: 50 + rng() * 40, anchorX: cx,
+      hp: 1, hurt: 0, dying: 0, dead: false, t: rng() * 6
+    });
+  }
+
+  function addWisp(rng, x, y, fit) {
+    fit = fit || 1;
+    enemies.push({
+      type: "wisp", x, y, w: Math.round(14 * fit), h: Math.round(14 * fit), vs: fit,
+      anchorX: x, anchorY: y,
+      hp: 1, hurt: 0, dying: 0, dead: false, t: rng() * 6
+    });
+  }
+
+  // Stitch shuffled chunks across the midfield from `startX` to the boss
+  // approach. Split out of buildWorld so the course ahead of the player can be
+  // re-stitched at a new scale when the dragon evolves mid-run.
+  function stitchCourse(rng, startX, fit, gap) {
+    const flavor = rng();
+    const deck = LEVEL_CHUNKS.map((c) => ({ c, k: rng() }));
+    deck.sort((u, v) => u.k - v.k);
+    let cursor = startX;
+    let di = 0;
+    while (cursor < 2760) {
+      const chunk = deck[di % deck.length].c;
+      di += 1;
+      const span = Math.round(chunk.w * gap);
+      if (cursor + span > 2860) break;
+      for (const L of chunk.ledges) {
+        let type = L[3] || "normal";
+        if (type === "normal") {
+          const roll = rng();
+          if (flavor < 0.25 && roll < 0.22) type = "trampoline";
+          else if (flavor >= 0.25 && flavor < 0.5 && roll < 0.22) type = "crumble";
+          else if (flavor >= 0.5 && flavor < 0.7 && roll < 0.16) type = "spiketop";
+        }
+        addLedge(cursor + L[0] * gap, L[1] + rng() * 10 - 5, L[2], type, fit, gap);
+      }
+      for (const dx of (chunk.drakes || [])) {
+        const cx = cursor + dx * gap;
+        // keep patrols clear of checkpoint flags so respawns are safe
+        if (CHECKPOINTS.every((c) => Math.abs(cx - c) > 130)) addDrake(rng, cx, fit);
+      }
+      for (const wsp of (chunk.wisps || [])) {
+        addWisp(rng, cursor + wsp[0] * gap, wsp[1] + rng() * 12 - 6, fit);
+      }
+      for (const sx of (chunk.spikes || [])) {
+        const x = cursor + sx * gap;
+        if (CHECKPOINTS.every((c) => Math.abs(x - c) > 130) && x > 400) {
+          const h = Math.round(18 * fit);
+          hazards.push({ type: "spike", x, y: groundYAt(x) - h, w: Math.round(40 * fit), h, t: 0 });
+        }
+      }
+      cursor += span;
+    }
+    // Closing ledge on the approach to the boss arena
+    addLedge(2850, 76 + rng() * 8, 112, "normal", fit, gap);
+  }
+
+  // On evolution, re-stitch the course beyond what the player can see so the
+  // world matches the new body size. Everything at or behind the camera edge
+  // is left untouched — geometry must never move under or near the player.
+  function rescaleWorldAhead() {
+    const edge = Math.max(cameraX + W + 120, player.x + 260);
+    if (edge >= 2760) return;
+    for (let i = platforms.length - 1; i >= 0; i -= 1) {
+      if (!platforms[i].ground && platforms[i].x >= edge) platforms.splice(i, 1);
+    }
+    for (let i = enemies.length - 1; i >= 0; i -= 1) {
+      if (enemies[i].x >= edge) enemies.splice(i, 1);
+    }
+    for (let i = hazards.length - 1; i >= 0; i -= 1) {
+      if (hazards[i].x >= edge) hazards.splice(i, 1);
+    }
+    // Fresh deterministic stream per (seed, stage): the rebuilt stretch is not
+    // on screen yet, so a different-but-consistent layout is fine.
+    const rng = mulberry32((levelSeed ^ (player.stage * 0x9e3779b1)) >>> 0);
+    stitchCourse(rng, Math.max(300, Math.ceil(edge / 20) * 20),
+                 levelFit(player.stage), levelGap(player.stage));
+  }
+
   function buildWorld() {
     const rng = mulberry32(levelSeed);
+    ledgeIdx = 0;
     platforms.length = 0;
     shards.length = 0;
     hazards.length = 0;
@@ -402,69 +533,10 @@
       platforms.push({ x, y: GROUND_Y + wave, w: TILE, h: 40, solid: true, ground: true });
     }
 
-    let ledgeIdx = 0;
-    function addLedge(x, y, w, type) {
-      platforms.push({
-        x, y: clamp(Math.round(y), 70, 120), w, h: 8, solid: true, ground: false,
-        sink: 0, sinkVel: 0, phase: (ledgeIdx++) * 0.7,
-        type: type || "normal", crumbleT: 0, respawnT: 0,
-      });
-    }
-    function addDrake(cx, range) {
-      enemies.push({
-        type: "drake", x: cx, y: GROUND_Y - 16, w: 18, h: 14,
-        vx: 34 + rng() * 14, range: range || (50 + rng() * 40), anchorX: cx,
-        hp: 1, hurt: 0, dying: 0, dead: false, t: rng() * 6
-      });
-    }
-    function addWisp(x, y) {
-      enemies.push({
-        type: "wisp", x, y, w: 14, h: 14, anchorX: x, anchorY: y,
-        hp: 1, hurt: 0, dying: 0, dead: false, t: rng() * 6
-      });
-    }
-
     // Hand-authored gentle spawn zone
-    addLedge(180, 112 + rng() * 8 - 4, 72);
+    addLedge(180, 112 + rng() * 8 - 4, 72, "normal", 1, 1);
 
-    // Stitch shuffled chunks across the midfield. A light per-run "flavor"
-    // skews which ledge types show up so runs feel distinct.
-    const flavor = rng();
-    const deck = LEVEL_CHUNKS.map((c, i) => ({ c, k: rng() }));
-    deck.sort((u, v) => u.k - v.k);
-    let cursor = 300;
-    let di = 0;
-    while (cursor < 2760) {
-      const chunk = deck[di % deck.length].c;
-      di += 1;
-      if (cursor + chunk.w > 2860) break;
-      for (const L of chunk.ledges) {
-        let type = L[3] || "normal";
-        if (type === "normal") {
-          const roll = rng();
-          if (flavor < 0.25 && roll < 0.22) type = "trampoline";
-          else if (flavor >= 0.25 && flavor < 0.5 && roll < 0.22) type = "crumble";
-          else if (flavor >= 0.5 && flavor < 0.7 && roll < 0.16) type = "spiketop";
-        }
-        addLedge(cursor + L[0], L[1] + rng() * 10 - 5, L[2], type);
-      }
-      for (const dx of (chunk.drakes || [])) {
-        const cx = cursor + dx;
-        // keep patrols clear of checkpoint flags so respawns are safe
-        if (CHECKPOINTS.every((c) => Math.abs(cx - c) > 130)) addDrake(cx);
-      }
-      for (const wsp of (chunk.wisps || [])) addWisp(cursor + wsp[0], wsp[1] + rng() * 12 - 6);
-      for (const sx of (chunk.spikes || [])) {
-        const x = cursor + sx;
-        if (CHECKPOINTS.every((c) => Math.abs(x - c) > 130) && x > 400) {
-          const h = 18;
-          hazards.push({ type: "spike", x, y: groundYAt(x) - h, w: 40, h, t: 0 });
-        }
-      }
-      cursor += chunk.w;
-    }
-    // Closing ledge on the approach to the boss arena
-    addLedge(2850, 76 + rng() * 8, 112);
+    stitchCourse(rng, 300, levelFit(player.stage), levelGap(player.stage));
 
     // Gems: a ground strand + a sky strand, phase-shifted per run,
     // plus arcs over trampolines as a reward for bouncing high.
@@ -1068,6 +1140,7 @@
     player.stage += 1;
     player.xp = 0;
     applyStageBox();
+    rescaleWorldAhead();
     mode = MODE.EVOLVE;
     hatchTimer = 0;
     shake = 8;
@@ -2106,7 +2179,7 @@
       }
       const enemySprite = e.type === "drake" ? art.enemyDrake : art.enemyWisp;
       if (imgReady(enemySprite)) {
-        const size = e.type === "drake" ? 32 : 30;
+        const size = Math.round((e.type === "drake" ? 32 : 30) * (e.vs || 1));
         const dx = Math.floor(x - size / 2);
         const dy = e.type === "drake" ? Math.floor(y - size) : Math.floor(y - size / 2);
         ctx.filter = flash ? "brightness(2.4)" : "none";
@@ -2339,6 +2412,7 @@
       const x = Math.floor(p.x - cameraX);
       if (x < -p.w || x > W) continue;
       const y = platformDrawY(p) - cameraY;
+      const vs = p.vs || 1;
       if (y < -32 || y > H + 48) continue;
       if (p.ground) {
         if (!drawFittedAsset(art.ground, x, y - 2, p.w + 1, Math.max(42, H - y + 2), true)) {
@@ -2356,7 +2430,7 @@
         }
       } else if (p.type === "trampoline") {
         const compress = Math.max(0, p.sink || 0);
-        if (!drawFittedAsset(art.trampoline, x, y - 5 + compress, p.w, Math.max(20, 29 - compress), true)) {
+        if (!drawFittedAsset(art.trampoline, x, y - Math.round(5 * vs) + compress, p.w, Math.max(20, Math.round(29 * vs) - compress), true)) {
           // Compress visually based on sink (deeper sink = more compressed coil)
           rect(x, y + compress, p.w, 4, "#ff5e87");        // bumper top
           rect(x, y + 4 + compress, p.w, 2, "#ff8aa8");
@@ -2368,7 +2442,7 @@
           rect(x, y + p.h, p.w, 1, "#4c2f27");
         }
       } else if (p.type === "spiketop") {
-        if (!drawFittedAsset(art.spiketop, x, y - 16, p.w, 38, true)) {
+        if (!drawFittedAsset(art.spiketop, x, y - Math.round(16 * vs), p.w, Math.round(38 * vs), true)) {
           // Wood platform with spike strip on top
           rect(x, y + 2, p.w, p.h - 2, "#7b4b2c");
           rect(x, y + p.h - 1, p.w, 1, "#4c2f27");
@@ -2380,7 +2454,7 @@
           }
         }
       } else if (p.type === "crumble") {
-        if (!drawFittedAsset(art.crumble, x, y - 4, p.w, 27, true)) {
+        if (!drawFittedAsset(art.crumble, x, y - Math.round(4 * vs), p.w, Math.round(27 * vs), true)) {
           // Brown plank with cracks, shakes when crumbleT > 0
           const sx = (p.crumbleT > 0) ? Math.round((Math.random() - 0.5) * 2) : 0;
           rect(x + sx, y, p.w, p.h, "#8a5a2a");
@@ -2398,7 +2472,7 @@
         }
       } else {
         const ledgeAsset = Math.floor(p.x / 180) % 2 ? art.normalCrystal : art.normal;
-        if (!drawFittedAsset(ledgeAsset, x, y - 4, p.w, 27, true)) {
+        if (!drawFittedAsset(ledgeAsset, x, y - Math.round(4 * vs), p.w, Math.round(27 * vs), true)) {
           rect(x, y, p.w, p.h, PAL.gold);
           rect(x, y + 2, p.w, p.h - 2, "#7b4b2c");
           rect(x, y + p.h, p.w, 1, "#4c2f27");
@@ -3340,6 +3414,8 @@
       if (cmd.stage !== undefined) {
         player.stage = clamp(cmd.stage, 0, CHARACTERS.length - 1);
         applyStageBox();
+        // mirror evolve() so QA exercises the same path a real run takes
+        rescaleWorldAhead();
         player.y = Math.min(player.y, GROUND_Y - player.h);
       }
       if (cmd.x !== undefined) {
@@ -3347,6 +3423,14 @@
         checkpointX = cmd.x;
       }
       if (cmd.reseed) startPlay(); // fresh run: new seed, world, theme, track
+      if (cmd.probe) {
+        // raw geometry, for verifying that the course scales with the dragon
+        return {
+          platforms: platforms.map((p) => ({ x: p.x, y: p.y, w: p.w, h: p.h, ground: !!p.ground, vs: p.vs || 1, type: p.type })),
+          enemies: enemies.map((e) => ({ x: e.x, w: e.w, h: e.h, type: e.type })),
+          hazards: hazards.map((z) => ({ x: z.x, w: z.w, h: z.h }))
+        };
+      }
     }
     const ledges = platforms.filter(p => !p.ground);
     const types = {};
