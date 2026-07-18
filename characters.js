@@ -114,6 +114,21 @@
     }
   ];
 
+  // Altos ANCIENT (stage 06) uses the video-generated atlas: full 8-frame
+  // cycles for the loops, 6-frame one-shots. fps values are fitted to the
+  // game's fixed anim windows (hurt must finish inside HURT_ANIM_TIME 0.42s).
+  var VIDEO_ANIMS = {
+    idle:      { row: 0, frames: 8, fps: 7 },
+    walk:      { row: 1, frames: 8, fps: 10 },
+    flight:    { row: 2, frames: 8, fps: 11 },
+    attack:    { row: 3, frames: 6, fps: 10, once: true },
+    flyattack: { row: 4, frames: 6, fps: 10, once: true },
+    hurt:      { row: 5, frames: 6, fps: 12, once: true },
+    jump:      { row: 6, frames: 6, fps: 10, once: true },
+    dead:      { row: 7, frames: 6, fps: 7,  once: true }
+  };
+  window.ALTOS_ROSTER[0].stages[5].animations = VIDEO_ANIMS;
+
   // Legacy export: older game.js builds read ALTOS_CHARACTERS directly.
   window.ALTOS_CHARACTERS = window.ALTOS_ROSTER[0].stages;
 })();
