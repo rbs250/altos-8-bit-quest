@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "video-anims-final-20260719";
+  const ASSET_VERSION = "video-anims-fit-20260719";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -238,7 +238,15 @@
   // Evolution is intentionally dramatic. Visual size grows much faster than
   // the forgiving collision body, and the camera lifts to keep adult wings in
   // frame when the dragon is standing on the ground.
-  const STAGE_DRAW = [48, 70, 108, 138, 170, 202];
+  // Cell blit size per stage — NOT the dragon's on-screen size. Each stage's
+  // art fills its atlas cell by a different amount: the video-generated poses
+  // have wide wingspans, and a cell must be scaled down until its widest pose
+  // (flight) fits, which leaves the body smaller inside the cell. These values
+  // compensate so the DRAGON's on-screen height follows the original curve
+  // (41, 68, 88, 108, 129 px standing). That is why they are not monotonic —
+  // GUARDIAN's art is the most wing-dominated, so it needs the largest blit to
+  // reach its intended body size.
+  const STAGE_DRAW = [48, 70, 113, 181, 170, 220];
   const STAGE_BOX = [
     { w: 22, h: 15 }, { w: 24, h: 17 }, { w: 27, h: 19 },
     { w: 30, h: 21 }, { w: 32, h: 23 }, { w: 34, h: 25 }
