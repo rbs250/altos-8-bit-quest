@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "video-anims-fit-20260719";
+  const ASSET_VERSION = "video-anims-clean-20260719";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -1412,13 +1412,13 @@
         player.vy = 0;
         player.ground = true;
       } else if (player.vy < 0 && !p.ground) {
-        const impact = -player.vy;
-        player.y = py + p.h - 3;
-        player.vy = Math.max(34, impact * 0.32);
-        bumpPlatform(p, impact, true);
-        shake = Math.max(shake, 1.6);
-        addDust(player.x + 14, py + p.h + 2, 6, PAL.blue2);
-        beep(120, 0.045, "square", 0.015, 0.85);
+        // Ledges are ONE-WAY: solid to land on from above, pass-through from
+        // below. They used to bonk the player's head and push them back down,
+        // which trapped the larger evolutions — a Sky Lord's box is tall
+        // enough that a low ledge could pin it with no way out. The ledge
+        // still reacts so the pass-through reads as physical.
+        bumpPlatform(p, -player.vy, true);
+        addDust(player.x + player.w / 2, py + p.h + 2, 4, PAL.blue2);
       }
       box.y = player.y + 4;
     }
