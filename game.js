@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "video-anims-clean-20260719";
+  const ASSET_VERSION = "facing-fix-20260720";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -246,7 +246,10 @@
   // (41, 68, 88, 108, 129 px standing). That is why they are not monotonic —
   // GUARDIAN's art is the most wing-dominated, so it needs the largest blit to
   // reach its intended body size.
-  const STAGE_DRAW = [48, 70, 113, 181, 170, 220];
+  // Must be monotonic: every evolution has to make the dragon bigger. SKY LORD
+  // used to sit at 170, BELOW GUARDIAN's 181, so evolving into it visibly
+  // shrank the dragon.
+  const STAGE_DRAW = [48, 70, 113, 181, 195, 220];
   const STAGE_BOX = [
     { w: 22, h: 15 }, { w: 24, h: 17 }, { w: 27, h: 19 },
     { w: 30, h: 21 }, { w: 32, h: 23 }, { w: 34, h: 25 }
@@ -1255,7 +1258,20 @@
 
     // Smooth camera: lead the player's facing + velocity, then round for
     // crisp pixels. Floats live in camXf/camYf.
-    const lookX = clamp(player.x - 92 + player.face * 26 + player.vx * 0.14, 0, LEVEL_W - W);
+    // The forward lead has to yield as the dragon grows. It used to park the
+    // player at a fixed screen x≈66 whatever the sprite size, so ANCIENT --
+    // drawn 220px wide on a 320px screen -- lost ~44px of wing off the left
+    // edge. Scale the lead by the spare width, then hard-clamp the sprite's
+    // draw box inside the viewport.
+    const halfDraw = playerDrawSize() / 2;
+    const spare = clamp((W - 2 * halfDraw) / W, 0, 1);
+    const lead = (player.face * 26 + player.vx * 0.14) * spare;
+    let centerX = 92 + player.w / 2 - lead;   // where the sprite centre lands
+    const minCenter = halfDraw + 4;
+    const maxCenter = W - halfDraw - 4;
+    // if it is too wide to fit at all, centring loses the least
+    centerX = minCenter > maxCenter ? W / 2 : clamp(centerX, minCenter, maxCenter);
+    const lookX = clamp(player.x + player.w / 2 - centerX, 0, LEVEL_W - W);
     const growthLift = Math.max(0, playerDrawSize() - 88) * 0.42;
     const lookY = clamp(player.y - 88 - growthLift + player.vy * 0.10, CAMERA_TOP_Y, 0);
     camXf += (lookX - camXf) * Math.min(1, dt * 5.2);
@@ -1963,7 +1979,7 @@
     if (unlocked) {
       drawDragonPreview(cx, 124, 0, 80, Math.floor(time * 3) % 2 === 0);
     } else {
-      drawMysteryDragonPreview(cx, platformY - 2, 66);
+      drawSilhouettePreview(cx, platformY - 2, 66, ch);
     }
     const nameW = ch.name.length * 8;
     text(ch.name, cx - nameW / 2, platformY + 16, unlocked ? PAL.gold2 : "#7a86b8", 1);
@@ -1993,7 +2009,7 @@
       const idx = ROSTER.indexOf(ch);
       drawRosterPreview(idx, cx, platformY - 2, 44);
     } else {
-      drawMysteryDragonPreview(cx, platformY - 2, 46);
+      drawSilhouettePreview(cx, platformY - 2, 46, ch);
     }
     ctx.restore();
     const label = isUnlocked(ch) ? ch.name : "???";
@@ -2024,6 +2040,60 @@
     drawMysteryDragonPreview(x, y, size);
   }
 
+  // Silhouettes are cut from the character's own idle frame, so a locked slot
+  // teases that dragon's real shape instead of a generic blob. Keyed by
+  // atlas+frame+size because re-tinting every draw would cost a canvas op per
+  // frame per slot.
+  const silhouetteCache = new Map();
+
+  function silhouetteFrame(atlas, sx, sy, sw, sh, size, key) {
+    let c = silhouetteCache.get(key);
+    if (c) return c;
+    c = document.createElement("canvas");
+    c.width = size;
+    c.height = size;
+    const g = c.getContext("2d");
+    g.imageSmoothingEnabled = false;
+    g.drawImage(atlas, sx, sy, sw, sh, 0, 0, size, size);
+    // keep only the sprite's own pixels, repainted as one flat shadow
+    g.globalCompositeOperation = "source-in";
+    g.fillStyle = "#080d1c";
+    g.fillRect(0, 0, size, size);
+    silhouetteCache.set(key, c);
+    return c;
+  }
+
+  function drawSilhouettePreview(x, y, size, ch) {
+    const st = ch && ch.stages && ch.stages[0];
+    const atlas = st && st.atlas ? loadImg(st.atlas) : null;
+    if (!imgReady(atlas) || !st.animations || !st.animations.idle) {
+      drawMysteryDragonPreview(x, y, size);
+      return;
+    }
+    const anim = st.animations.idle;
+    const frameW = st.frameWidth || 160;
+    const frameH = st.frameHeight || 160;
+    const frame = Math.floor(time * (anim.fps || 6)) % Math.max(1, anim.frames || 1);
+    const sil = silhouetteFrame(atlas, frame * frameW, anim.row * frameH, frameW,
+      frameH, size, st.atlas + "|" + frame + "|" + size);
+    const dx = Math.floor(x - size / 2);
+    const dy = Math.floor(y - size * 0.94);
+    const a0 = ctx.globalAlpha;
+    ctx.save();
+    // smeared copies read as a soft edge against the night sky
+    ctx.globalAlpha = a0 * 0.34;
+    ctx.drawImage(sil, dx - 1, dy);
+    ctx.drawImage(sil, dx + 1, dy);
+    ctx.drawImage(sil, dx, dy - 1);
+    ctx.globalAlpha = a0;
+    ctx.drawImage(sil, dx, dy);
+    ctx.restore();
+    // centred ON the dark body: gold on shadow reads clearly, and unlike a
+    // floating mark above the crown it cannot collide with the roster counter
+    text("?", x - 8, y - size * 0.55, PAL.gold2, 3);
+  }
+
+  // Fallback only: used when a locked character's art has not loaded yet.
   function drawMysteryDragonPreview(x, y, size) {
     const s = size / 64;
     const c = "#060815";
