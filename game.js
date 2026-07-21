@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "logic-mobile-20260721";
+  const ASSET_VERSION = "vfx-hd-20260722";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -193,6 +193,7 @@
   const shards = [];
   const fires = [];
   const particles = [];
+  const rings = [];       // expanding additive shockwave rings (VFX juice)
   const floatText = [];
   const stars = [];
   const enemies = [];
@@ -338,6 +339,7 @@
     eggshell = [];
     fires.length = 0;
     particles.length = 0;
+    rings.length = 0;
     floatText.length = 0;
     enemies.length = 0;
     bossFires.length = 0;
@@ -1018,6 +1020,46 @@
     }
   }
 
+  // --- VFX juice: shockwave rings, glowing sparks, additive light bloom ------
+  function addRing(x, y, r0, r1, life, color, width) {
+    rings.push({ x, y, r0, r1, life, max: life, c: color, w: width || 2 });
+  }
+
+  function addSparks(x, y, n, color, spd) {
+    for (let i = 0; i < n; i += 1) {
+      const a = Math.random() * Math.PI * 2;
+      const s = spd * (0.35 + Math.random());
+      particles.push({
+        x, y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s - 24,
+        life: 0.26 + Math.random() * 0.42,
+        g: 150,
+        c: color,
+        s: Math.random() > 0.72 ? 2 : 1,
+        glow: true
+      });
+    }
+  }
+
+  // A soft additive light blob — the core of the "HD glow over crisp pixels" look.
+  function glowBlob(x, y, r, color, alpha) {
+    if (r < 1) return;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, color);
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  function updateRings(dt) {
+    for (let i = rings.length - 1; i >= 0; i -= 1) {
+      rings[i].life -= dt;
+      if (rings[i].life <= 0) rings.splice(i, 1);
+    }
+  }
+
   function addText(text, x, y, c = PAL.gold2) {
     floatText.push({ text, x, y, life: 0.85, c });
   }
@@ -1162,6 +1204,11 @@
     shake = 8;
     freeze = 0.08;
     addDust(player.x + 14, player.y + 10, 70, PAL.gold2);
+    // evolution burst: twin shockwaves + a fountain of golden sparks
+    const ecx = player.x + player.w / 2, ecy = player.y + player.h / 2;
+    addRing(ecx, ecy, 6, 96, 0.6, PAL.gold2, 3);
+    addRing(ecx, ecy, 6, 62, 0.46, PAL.white, 2);
+    addSparks(ecx, ecy, 34, PAL.gold2, 150);
     musicSet("evolve");
     grantUnlocks({ type: "stage", stage: player.stage });
   }
@@ -1194,6 +1241,7 @@
     // player on resume. Everything else still animates its menu particles.
     if (mode !== MODE.PAUSE) {
       updateParticles(dt);
+      updateRings(dt);
       updatePlatforms(dt);
     }
 
@@ -1255,6 +1303,21 @@
         addDust(cx, groundYAt(cx) - 30, 14, PAL.gold2);
         arpeggio(440);
       }
+    }
+
+    // Ambient atmosphere: slow-rising glowing motes drift through the scene
+    if (Math.random() < dt * 2.6) {
+      particles.push({
+        x: cameraX + Math.random() * W,
+        y: cameraY + H * 0.45 + Math.random() * H * 0.6,
+        vx: -6 + Math.random() * 12,
+        vy: -7 - Math.random() * 11,
+        life: 1.3 + Math.random() * 1.3,
+        g: -10,
+        c: Math.random() > 0.5 ? PAL.gold2 : PAL.blue2,
+        s: 1,
+        glow: true
+      });
     }
 
     // Low-HP heartbeat
@@ -1512,6 +1575,9 @@
     player.fireFlash = 0.18;
     player.attackAnim = ATTACK_ANIM_TIME;
     addDust(mouth.x, mouth.y, 5, lava ? PAL.gold2 : PAL.red2);
+    // muzzle flash: a quick expanding ring + a spray of glowing sparks
+    addRing(mouth.x, mouth.y, 3, lava ? 24 : 17, 0.2, lava ? PAL.gold2 : PAL.red2, 2);
+    addSparks(mouth.x, mouth.y, lava ? 9 : 5, lava ? PAL.gold2 : PAL.red2, 95);
     if (lava) {
       beep(64, 0.14, "sawtooth", 0.04, 0.4);
       beep(140, 0.10, "triangle", 0.03, 0.5);
@@ -1529,6 +1595,8 @@
     e.dead = true;
     addDust(e.x, e.y - e.h / 2, 24, PAL.red2);
     addDust(e.x, e.y - e.h / 2, 12, PAL.gold2);
+    addRing(e.x, e.y - e.h / 2, 4, 32, 0.3, PAL.gold2, 2);
+    addSparks(e.x, e.y - e.h / 2, 14, PAL.red2, 130);
     addText("+" + scoreBonus, e.x - 6, e.y - e.h - 4, PAL.gold2);
     score += scoreBonus;
     best = Math.max(best, score);
@@ -1551,6 +1619,8 @@
     e.dying = MELT_TIME;
     addDust(e.x, e.y - e.h / 2, 18, PAL.gold2);
     addDust(e.x, e.y - 2, 10, PAL.red);
+    addRing(e.x, e.y - e.h / 2, 4, 28, 0.34, "#ff7a1f", 2);
+    addSparks(e.x, e.y - e.h / 2, 11, PAL.gold2, 95);
     addText("MELTED! +" + scoreBonus, e.x - 14, e.y - e.h - 4, PAL.gold2);
     score += scoreBonus;
     best = Math.max(best, score);
@@ -1717,6 +1787,8 @@
         boss.hurt = 0.22;
         shake = Math.max(shake, f.lava ? 5 : 3);
         addDust(f.x, f.y, f.lava ? 18 : 10, PAL.gold2);
+        addRing(f.x, f.y, 3, f.lava ? 30 : 22, 0.28, f.lava ? PAL.gold2 : PAL.red2, 2);
+        addSparks(f.x, f.y, f.lava ? 12 : 8, PAL.gold2, 110);
         addText(f.lava ? "SCORCH!" : "HIT", f.x - 4, f.y - 8, PAL.gold2);
         beep(f.lava ? 220 : 420, 0.07, "square", 0.035, 0.55);
         if (boss.hp <= 0) {
@@ -1779,6 +1851,7 @@
       if (f.y > GROUND_Y + 10) {
         // breath splashes out on the ground
         addDust(f.x, GROUND_Y + 2, f.lava ? 12 : 6, f.lava ? PAL.gold2 : PAL.red2);
+        addRing(f.x, GROUND_Y + 2, 2, f.lava ? 22 : 16, 0.24, f.lava ? PAL.gold2 : PAL.red2, 2);
         fires.splice(i, 1);
       } else if (f.life <= 0 || f.x < cameraX - 42 || f.x > cameraX + W + 42 || f.y < cameraY - 42 || f.y > cameraY + H + 42) {
         fires.splice(i, 1);
@@ -1827,6 +1900,8 @@
         comboT = 1.4;
         addText(comboN >= 3 ? "COMBO x" + (comboN + 1) : "+1", s.x, sy - 10, comboN >= 3 ? PAL.blue2 : PAL.gold2);
         addDust(s.x, sy, 16, PAL.gold2);
+        addRing(s.x, sy, 2, 15, 0.24, PAL.gold2, 1);
+        addSparks(s.x, sy, 5, PAL.gold2, 60);
         beep(Math.min(1250, 620 + comboN * 55), 0.06, "square", 0.035, 1.45);
         if (player.xp >= stageNeed[player.stage]) evolve();
       }
@@ -2203,11 +2278,13 @@
     drawFires();
     drawDragonSprite(player.x - cameraX, player.y - cameraY, player.stage, player.face, !player.ground);
     drawParticlesWorld();
+    drawGlowLayer();     // additive bloom for fire/gems/sparks/rings
     // Per-run atmosphere: a whisper of color over the whole scene (pre-HUD)
     if (worldTheme && worldTheme.tint) {
       ctx.fillStyle = worldTheme.tint;
       ctx.fillRect(0, 0, W, H);
     }
+    drawPostFX();        // vignette + top key-light (under the crisp HUD)
     drawHud();
     drawBossBar();
 
@@ -3138,6 +3215,70 @@
     for (const t of floatText) {
       text(t.text, t.x - cameraX, t.y - cameraY, t.c, 1);
     }
+  }
+
+  // Additive light pass: bloom behind fire/gems, glowing sparks, shockwave
+  // rings. Smooth light over crisp pixels = "HD, still 8-bit".
+  function drawGlowLayer() {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const f of fires) {
+      const gx = f.x - cameraX, gy = f.y - cameraY;
+      const r = f.lava ? f.w * 1.7 : f.w * 1.25;
+      glowBlob(gx, gy, r, f.lava ? "#ff9a3a" : "#ff5a3a", 0.55);
+      glowBlob(gx, gy, r * 0.5, f.lava ? "#ffe69a" : "#ffd0a0", 0.6);
+    }
+    for (const f of bossFires) {
+      glowBlob(f.x - cameraX, f.y - cameraY, f.w * 1.5, "#ff5a3a", 0.55);
+    }
+    for (const s of shards) {
+      if (s.got) continue;
+      const gx = s.x - cameraX;
+      if (gx < -12 || gx > W + 12) continue;
+      const gy = s.y + Math.sin(time * 4 + s.bob) * 4 - cameraY;
+      glowBlob(gx, gy, 9, "#ffe69a", 0.22 + Math.sin(time * 3 + s.bob) * 0.1);
+    }
+    if (player.fireFlash > 0) {
+      const m = playerMouthPoint();
+      glowBlob(m.x - cameraX, m.y - cameraY, 22, "#ffd0a0", Math.min(0.8, player.fireFlash * 2.4));
+    }
+    for (const p of particles) {
+      if (p.glow) glowBlob(p.x - cameraX, p.y - cameraY, 5, p.c, 0.5);
+    }
+    for (const r of rings) {
+      const k = 1 - r.life / r.max;
+      const rad = r.r0 + (r.r1 - r.r0) * (1 - Math.pow(1 - k, 2)); // ease-out
+      ctx.globalAlpha = (1 - k) * 0.7;
+      ctx.strokeStyle = r.c;
+      ctx.lineWidth = r.w;
+      ctx.beginPath();
+      ctx.arc(r.x - cameraX, r.y - cameraY, Math.max(1, rad), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  let vignetteGrad = null;
+  let topLightGrad = null;
+  // Cinematic post: a soft vignette for depth + a faint top key-light. Drawn
+  // under the HUD so the interface stays crisp.
+  function drawPostFX() {
+    if (!vignetteGrad) {
+      vignetteGrad = ctx.createRadialGradient(W / 2, H / 2, H * 0.34, W / 2, H / 2, H * 0.98);
+      vignetteGrad.addColorStop(0, "rgba(0,0,0,0)");
+      vignetteGrad.addColorStop(1, "rgba(4,6,16,0.4)");
+      topLightGrad = ctx.createLinearGradient(0, 0, 0, H);
+      topLightGrad.addColorStop(0, "#9bd4df");
+      topLightGrad.addColorStop(0.45, "rgba(0,0,0,0)");
+    }
+    ctx.save();
+    ctx.fillStyle = vignetteGrad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = 0.05;
+    ctx.fillStyle = topLightGrad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
   }
 
   function drawHud() {
