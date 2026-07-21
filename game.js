@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "vfx-hd-20260722";
+  const ASSET_VERSION = "hd-menus-20260722";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -2039,10 +2039,17 @@
     text("NEXT: CHOOSE YOUR DRAGON", 72, 140, PAL.white, 1);
     text("BEST " + best, 132, 154, PAL.white, 1);
     text("ARROWS MOVE  W FLY  J FIRE  M MUSIC", 46, 166, "#7a86b8", 1);
+    drawPostFX();
     drawBorder();
   }
 
   function drawLogo(x, y) {
+    // warm additive halo behind the wordmark — gives the logo real presence
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    glowBlob(x + 46, y + 15, 66, "#6a4a18", 0.55);
+    glowBlob(x + 46, y + 15, 34, "#f7c64a", 0.28 + Math.sin(time * 2) * 0.08);
+    ctx.restore();
     text("ALTOS", x + 2, y + 2, "#552340", 4);
     text("ALTOS", x, y, PAL.gold2, 4);
     text("8-BIT QUEST", x + 4, y + 34, PAL.red2, 2);
@@ -2090,6 +2097,7 @@
     text(">", 280, 96, PAL.gold2, 3);
     blinkText(unlocked ? "ENTER TO INCUBATE" : "LOCKED", unlocked ? 88 : 132, 160, unlocked ? PAL.white : PAL.red2);
     drawParticlesScreen();
+    drawPostFX();
     drawBorder();
   }
 
@@ -2241,6 +2249,7 @@
     bar(80, 142, 160, 10, warmth / 100, PAL.red, PAL.gold2);
     text(Math.round(warmth) + "% WARM", 124, 156, PAL.blue2, 1);
     drawParticlesScreen();
+    drawPostFX();
     drawBorder();
   }
 
@@ -2264,6 +2273,7 @@
       text(selectedName() + " IS BORN!", 72, 36, PAL.gold2, 2);
     }
     drawParticlesScreen();
+    drawPostFX();
     drawBorder();
   }
 
