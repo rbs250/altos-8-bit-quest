@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "air-reg-20260721";
+  const ASSET_VERSION = "logic-mobile-20260721";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -218,6 +218,9 @@
   let eggshell = [];
   let fireCooldown = 0;
   let flapHeld = false;
+  // Seed-varied ground wave, set by buildWorld and read by groundYAt so that
+  // hazards/flags land on the real surface. Defaults match the old fixed curve.
+  const groundWave = { p1: 0, p2: 0, a1: 5, a2: 7 };
 
   // Feel & polish state
   const CHECKPOINTS = [1100, 2200];
@@ -536,12 +539,14 @@
     worldTheme = LEVEL_THEMES[Math.floor(rng() * LEVEL_THEMES.length)];
     runPlayTrack = ["play", "play_b", "play_c"][Math.floor(rng() * 3)];
 
-    // Ground: same dual-sine character, seed-varied phase and gentle amps
-    const p1 = rng() * Math.PI * 2, p2 = rng() * Math.PI * 2;
-    const a1 = 4 + rng() * 3, a2 = 5 + rng() * 4;
+    // Ground: same dual-sine character, seed-varied phase and gentle amps.
+    // Persist the wave params so groundYAt() reproduces the SAME surface —
+    // otherwise spikes/flags placed via groundYAt float above or sink into the
+    // real seed-warped ground the player actually walks on.
+    groundWave.p1 = rng() * Math.PI * 2; groundWave.p2 = rng() * Math.PI * 2;
+    groundWave.a1 = 4 + rng() * 3; groundWave.a2 = 5 + rng() * 4;
     for (let x = 0; x < LEVEL_W; x += TILE) {
-      const wave = Math.sin(x * 0.018 + p1) * a1 + Math.sin(x * 0.006 + p2) * a2;
-      platforms.push({ x, y: GROUND_Y + wave, w: TILE, h: 40, solid: true, ground: true });
+      platforms.push({ x, y: groundYAt(x), w: TILE, h: 40, solid: true, ground: true });
     }
 
     // Hand-authored gentle spawn zone
@@ -1184,8 +1189,13 @@
       shootingStar = { x: 60 + Math.random() * (W - 60), y: 8 + Math.random() * 46, t: 0 };
     }
 
-    updateParticles(dt);
-    updatePlatforms(dt);
+    // A true PAUSE must freeze the world — otherwise crumble/respawn ledge
+    // timers keep counting down while paused and a ledge can vanish under the
+    // player on resume. Everything else still animates its menu particles.
+    if (mode !== MODE.PAUSE) {
+      updateParticles(dt);
+      updatePlatforms(dt);
+    }
 
     if (mode === MODE.TITLE) return;
     if (mode === MODE.SELECT) {
@@ -1281,7 +1291,8 @@
   }
 
   function groundYAt(x) {
-    return GROUND_Y + Math.sin(x * 0.018) * 5 + Math.sin(x * 0.006) * 7;
+    return GROUND_Y + Math.sin(x * 0.018 + groundWave.p1) * groundWave.a1
+         + Math.sin(x * 0.006 + groundWave.p2) * groundWave.a2;
   }
 
   function warmEgg(amount) {
@@ -1347,8 +1358,12 @@
       player.vy = 0;
     }
 
+    // Stamina: fast recovery on the ground, slow recovery only while GLIDING.
+    // Actively holding flap must NOT regenerate — otherwise the 0.11/s flap
+    // drain is cancelled by a 0.13/s air regen (net +0.02/s) and flight is
+    // effectively unlimited. Flapping now costs; gliding slowly recovers.
     if (player.ground) player.stamina = clamp(player.stamina + dt * 0.75, 0, 1);
-    else player.stamina = clamp(player.stamina + dt * 0.13, 0, 1);
+    else if (!flap) player.stamina = clamp(player.stamina + dt * 0.13, 0, 1);
 
     // Footstep dust while running
     if (player.ground && Math.abs(player.vx) > 46 && Math.random() > 0.85) {
@@ -1708,6 +1723,11 @@
           boss.dead = true;
           boss.dying = 1.4;
           shake = 9;
+          // Lock in the win: the player must survive the 1.4s death animation
+          // (updateBoss only runs in PLAY, so dying mid-animation would strand
+          // boss.dying and cancel the win — then mis-fire VICTORY on continue).
+          player.invuln = Math.max(player.invuln, boss.dying + 0.6);
+          bossFires.length = 0;
           for (let k = 0; k < 6; k += 1) {
             setTimeout(() => { if (boss) addDust(boss.x + (Math.random() - 0.5) * boss.w, boss.y - boss.h / 2, 18, PAL.gold2); }, k * 110);
           }
@@ -3190,8 +3210,13 @@
 
   function drawEnd() {
     rect(0, 0, W, H, "rgba(0,0,0,0.62)");
-    text("ALTOS RESTS", 78, 56, "#552340", 3);
-    text("ALTOS RESTS", 76, 54, PAL.red2, 3);
+    // Use the PLAYED character's name, not a hardcoded "ALTOS" — Namisa dying
+    // said "ALTOS RESTS". Centre it so any name length sits in the middle.
+    const restMsg = currentChar().name + " RESTS";
+    ctx.font = `${8 * 3}px "Courier New", monospace`;
+    const restX = Math.round((W - ctx.measureText(restMsg).width) / 2);
+    text(restMsg, restX + 2, 56, "#552340", 3);
+    text(restMsg, restX, 54, PAL.red2, 3);
     text("SCORE " + score, 120, 90, PAL.gold2, 2);
     blinkText("ENTER: RISE AT CHECKPOINT", 62, 122, PAL.white);
     text("R: START OVER", 106, 140, "#7a86b8", 1);
@@ -3353,7 +3378,9 @@
     }
     else if (mode === MODE.EGG) warmEgg(12);
     else if (mode === MODE.EVOLVE) mode = MODE.PLAY;
-    else if (mode === MODE.PLAY) shootFire();
+    // Gate canvas-tap fire exactly like the keyboard/touch paths — a direct
+    // shootFire() ignores the cooldown and stamina, so rapid clicks machine-gun.
+    else if (mode === MODE.PLAY && fireCooldown <= 0 && player.stamina > 0.09) shootFire();
   }
 
   function canvasPoint(e) {
@@ -3450,6 +3477,15 @@
     reset();
   });
   bindTouchControls();
+
+  // The on-screen touch keys must show ONLY on genuine touch devices, never on
+  // a narrow desktop window. Detect real touch capability and gate all
+  // mobile-only CSS off a root class (controls default to display:none).
+  const isTouchDevice =
+    (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
+    "ontouchstart" in window ||
+    (navigator.maxTouchPoints || 0) > 0;
+  if (isTouchDevice) document.documentElement.classList.add("touch-device");
 
   function frame(now) {
     let delta = Math.min(0.12, (now - rafLast) / 1000);

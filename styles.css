@@ -196,34 +196,35 @@ canvas {
     #25213a;
 }
 
-@media (max-width: 900px), (pointer: coarse), (hover: none) {
-  html,
-  body {
-    position: fixed;
-    inset: 0;
-  }
+/* Mobile layout + on-screen controls apply ONLY on genuine touch devices.
+   game.js adds `touch-device` to <html> when real touch capability is detected,
+   so a narrow desktop window never shows the touch keys. */
+html.touch-device,
+html.touch-device body {
+  position: fixed;
+  inset: 0;
+}
 
-  .cabinet {
-    gap: 8px;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-  }
+html.touch-device .cabinet {
+  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
 
-  .screen {
-    width: min(100vw - 24px, calc((100dvh - 228px) * 16 / 9));
-  }
+html.touch-device .screen {
+  width: min(100vw - 24px, calc((100dvh - 228px) * 16 / 9));
+}
 
-  .marquee {
-    width: min(100vw - 24px, calc((100dvh - 228px) * 16 / 9));
-    min-height: 42px;
-    padding: 7px 10px;
-  }
+html.touch-device .marquee {
+  width: min(100vw - 24px, calc((100dvh - 228px) * 16 / 9));
+  min-height: 42px;
+  padding: 7px 10px;
+}
 
-  .touch-controls {
-    display: flex;
-    margin-top: auto;
-  }
+html.touch-device .touch-controls {
+  display: flex;
+  margin-top: auto;
 }
 
 @media (pointer: coarse) and (orientation: portrait) {
