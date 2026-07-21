@@ -37,12 +37,57 @@
 
   var STAGE_EPITHETS = ["HATCHLING", "YOUNG", "WINGED", "GUARDIAN", "SKY LORD", "ANCIENT"];
 
+  // The krea-era atlases padded short cycles by repeating frames, leaving a
+  // duplicate that reads as a one-frame stutter. Those rows were repacked so
+  // their distinct frames sit first; these overrides drop the declared count to
+  // the distinct count, per (charId_stage, anim). Interpolating an in-between
+  // was tried and rejected — it ghosted the wings/manes. Keyed charId_stageNum.
+  var FRAME_OVERRIDES = {
+    "eileithyia_1": {"jump":3,"walk":5},
+    "eileithyia_3": {"flight":4,"flyattack":4},
+    "eileithyia_4": {"attack":5,"flight":5,"flyattack":5},
+    "eileithyia_5": {"attack":5,"flight":4,"flyattack":4},
+    "eileithyia_6": {"attack":5,"flight":4,"flyattack":4,"jump":3},
+    "malfoy_1": {"attack":5},
+    "malfoy_2": {"walk":5},
+    "malfoy_3": {"attack":5,"flight":4,"flyattack":5,"walk":3},
+    "malfoy_4": {"attack":5,"flight":5,"flyattack":5,"idle":3,"jump":3,"walk":3},
+    "malfoy_5": {"attack":5,"flight":5,"flyattack":5,"jump":3,"walk":4},
+    "malfoy_6": {"attack":5,"flight":4,"flyattack":5,"jump":3,"walk":4},
+    "namisa_1": {"jump":3},
+    "namisa_2": {"flyattack":5},
+    "namisa_3": {"attack":5,"flight":4,"jump":3,"walk":4},
+    "namisa_4": {"attack":5,"flight":4,"flyattack":5,"walk":4},
+    "namisa_5": {"dead":1,"flight":5,"hurt":2,"walk":4},
+    "namisa_6": {"attack":5,"flight":4,"flyattack":4,"walk":4},
+    "sparo_1": {"attack":5,"idle":2},
+    "sparo_2": {"attack":5,"walk":5},
+    "sparo_3": {"attack":5,"flight":5,"flyattack":5},
+    "sparo_4": {"attack":5,"flight":4},
+    "sparo_5": {"attack":5,"flight":4,"flyattack":5},
+    "sparo_6": {"attack":5,"flight":5}
+  };
+
+  function withOverrides(anims, key) {
+    var ov = FRAME_OVERRIDES[key];
+    if (!ov) return anims;
+    var out = {};
+    Object.keys(anims).forEach(function (name) {
+      // clone so the shared SMOOTH/CRAFT template is never mutated
+      var a = Object.assign({}, anims[name]);
+      if (ov[name] !== undefined) a.frames = ov[name];
+      out[name] = a;
+    });
+    return out;
+  }
+
   function makeStages(charId, charName, legacySheets) {
     return STAGE_EPITHETS.map(function (epithet, i) {
       var num = "0" + (i + 1);
       // Evolved stages (3-6) use 512px atlas cells so the enlarged dragons
       // stay crisp at their big draw sizes; babies use 256px cells.
       var cell = i < 2 ? 256 : 512;
+      var base = i < 2 ? SMOOTH_ANIMS : CRAFT_ANIMS;
       return {
         id: charId + "_" + num,
         name: charName + " " + epithet,
@@ -50,7 +95,7 @@
         sheet: legacySheets ? "assets/sprites/" + charId + "_" + num + "_sheet.png" : null,
         frameWidth: cell,
         frameHeight: cell,
-        animations: i < 2 ? SMOOTH_ANIMS : CRAFT_ANIMS
+        animations: withOverrides(base, charId + "_" + (i + 1))
       };
     });
   }
@@ -61,7 +106,7 @@
       name: "ALTOS",
       tagline: "THE BRAVE ONE",
       locked: false,
-      eggSheet: "assets/sprites/egg_hatch_sheet.png",
+      eggSheet: "assets/sprites/egg_hatch_altos.png",
       eggPalette: { shell: "#2fb7ff", shade: "#1b55c8", light: "#7be8ff", accent: "#f7c64a", gem: "#6a4fe3", spark: "#fff8d6" },
       bodyColors: { main: "#2c49c8", light: "#7be8ff", dark: "#1b3598", wing: "#a03050" },
       stages: makeStages("altos", "ALTOS", true)
@@ -114,10 +159,10 @@
     }
   ];
 
-  // Altos stages 02-06 use the video-generated atlases: full 8-frame cycles
-  // for the loops, 6-frame one-shots. fps values are fitted to the game's
-  // fixed anim windows (hurt must finish inside HURT_ANIM_TIME 0.42s).
-  // Stage 01 HATCHLING has no canon yet and keeps its original atlas.
+  // Altos stages 01-06 all use the video-generated atlases now: full 8-frame
+  // cycles for the loops, 6-frame one-shots. fps values are fitted to the
+  // game's fixed anim windows (hurt must finish inside HURT_ANIM_TIME 0.42s).
+  // Stage 01 HATCHLING got its own baby canon on 2026-07-21.
   var VIDEO_ANIMS = {
     idle:      { row: 0, frames: 8, fps: 7 },
     walk:      { row: 1, frames: 8, fps: 10 },
@@ -128,7 +173,7 @@
     jump:      { row: 6, frames: 6, fps: 10, once: true },
     dead:      { row: 7, frames: 6, fps: 7,  once: true }
   };
-  for (var vs = 1; vs <= 5; vs++) {
+  for (var vs = 0; vs <= 5; vs++) {
     window.ALTOS_ROSTER[0].stages[vs].animations = VIDEO_ANIMS;
   }
 
