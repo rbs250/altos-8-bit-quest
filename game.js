@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "cover-title-20260722";
+  const ASSET_VERSION = "cover-ui-20260722";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -2075,28 +2075,29 @@
   // Crafted gold display pedestal for the character-select carousel (replaces
   // the old flat gold/brown bar + grass tufts). The selected slot glows.
   function drawPedestal(cx, y, w, sel) {
-    const half = Math.floor(w / 2);
     if (sel) {
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
-      glowBlob(cx, y + 3, w * 0.85, "#2f4f8f", 0.5);
-      glowBlob(cx, y + 3, w * 0.45, PAL.blue2, 0.22 + Math.sin(time * 3) * 0.08);
+      glowBlob(cx, y + 3, w * 0.9, "#2f4f8f", 0.5);
+      glowBlob(cx, y + 6, w * 0.5, PAL.blue2, 0.22 + Math.sin(time * 3) * 0.08);
       ctx.restore();
     }
-    // top slab the dragon stands on
+    if (imgReady(art.platform)) {
+      // Generated floating-island platform (matches the cover art). Its grassy
+      // top surface is anchored to y so the dragon stands ON the grass.
+      const dw = Math.round(w * 1.75);
+      const dh = Math.round(dw * art.platform.naturalHeight / art.platform.naturalWidth);
+      ctx.drawImage(art.platform, Math.round(cx - dw / 2), Math.round(y - dh * 0.3), dw, dh);
+      return;
+    }
+    const half = Math.floor(w / 2);   // fallback: crafted gold pedestal
     rect(cx - half, y, w, 4, PAL.gold);
-    rect(cx - half + 1, y + 1, w - 2, 1, PAL.gold2);
     rect(cx - half + 2, y, w - 4, 1, "#fffbe0");
-    // tapered stone body with gold pilasters + a centre gem
     rect(cx - half + 3, y + 4, w - 6, 9, "#232842");
-    rect(cx - half + 4, y + 4, w - 8, 1, "#454f74");
     rect(cx - half + 3, y + 4, 3, 9, PAL.gold);
     rect(cx + half - 6, y + 4, 3, 9, PAL.gold);
-    rect(cx - half + 4, y + 13, w - 8, 2, "#12162a");
     const gc = sel ? PAL.blue2 : "#2f6fae";
     rect(cx - 3, y + 6, 6, 5, gc);
-    rect(cx - 2, y + 6, 4, 1, PAL.white);
-    rect(cx - 1, y + 11, 2, 1, "#12162a");
   }
 
   function drawSelect() {
