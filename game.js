@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "select-hd-20260722";
+  const ASSET_VERSION = "cover-title-20260722";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -182,7 +182,10 @@
     enemyDrake: loadImg("assets/sprites/enemy_drake.png"),
     enemyWisp: loadImg("assets/sprites/enemy_wisp.png"),
     boss: loadImg("assets/sprites/ancient_boss.png"),
-    panel: loadImg("assets/sprites/ui_panel_ornate.png")
+    panel: loadImg("assets/sprites/ui_panel_ornate.png"),
+    titleArt: loadImg("assets/cover-art.png"),
+    menuBg: loadImg("assets/cover-art-background.png"),
+    platform: loadImg("assets/sprites/ui_pedestal.png")
   };
   const ATTACK_ANIM_TIME = 0.56;
   const HURT_ANIM_TIME = 0.42;
@@ -2024,23 +2027,36 @@
   }
 
   function drawTitle() {
-    drawSky(time * 7); // slow auto-pan brings the parallax to life
-    drawLogo(34, 28);
-    // Orbiting sparkles around the logo
-    for (let i = 0; i < 7; i += 1) {
-      const a = time * 1.6 + i * 0.9;
-      const sx = 95 + Math.cos(a) * (74 + (i % 3) * 9);
-      const sy = 45 + Math.sin(a * 1.3) * 24;
-      rect(sx, sy, 2, 2, i % 2 ? PAL.gold2 : PAL.blue2);
+    if (imgReady(art.titleArt)) {
+      // The hero key-art IS the title screen. A gentle Ken-Burns push keeps it
+      // breathing; the zoom margin stays positive so no edge is ever revealed.
+      const z = 9 + Math.sin(time * 0.32) * 5;
+      const px = Math.sin(time * 0.2) * 4;
+      const py = Math.cos(time * 0.26) * 2;
+      ctx.drawImage(art.titleArt, 0, 0, art.titleArt.naturalWidth, art.titleArt.naturalHeight,
+        -z + px, -z * 0.5625 + py, W + z * 2, H + z * 1.125);
+    } else {
+      drawSky(time * 7);
+      drawLogo(34, 28);
+      drawDragonSprite(192, 112 + Math.sin(time * 1.8) * 3, 3, 1, false);
     }
-    const bob = Math.sin(time * 1.8) * 3;
-    drawDragonSprite(192, 112 + bob, 3, 1, false);
-    text("HATCH A DRAGON. FLY. EVOLVE.", 35, 78, PAL.blue2, 1);
-    blinkText("PRESS ENTER", 110, 128, PAL.gold2);
-    text("NEXT: CHOOSE YOUR DRAGON", 72, 140, PAL.white, 1);
-    text("BEST " + best, 132, 154, PAL.white, 1);
-    text("ARROWS MOVE  W FLY  J FIRE  M MUSIC", 46, 166, "#7a86b8", 1);
-    drawPostFX();
+    // drifting star motes for life
+    for (let i = 0; i < 12; i += 1) {
+      const a = time * 1.0 + i * 0.63;
+      const sx = (i * 41 + time * 7) % (W + 8) - 4;
+      const sy = 14 + (i * 29) % 96 + Math.sin(a) * 5;
+      ctx.globalAlpha = 0.35 + Math.sin(a * 2) * 0.3;
+      rect(sx, sy, 1, 1, i % 3 ? PAL.gold2 : PAL.white);
+    }
+    ctx.globalAlpha = 1;
+    // legibility scrim + interactive prompts (the logo/tagline are in the art)
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    rect(0, H - 30, W, 30, "#04050d");
+    ctx.restore();
+    blinkText("PRESS ENTER TO PLAY", 92, H - 26, PAL.gold2);
+    text("BEST " + best, 8, H - 26, PAL.white, 1);
+    text("ARROWS MOVE   W FLY   J FIRE   M MUSIC", 44, H - 11, "#a9b8de", 1);
     drawBorder();
   }
 
