@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "hd-menus-20260722";
+  const ASSET_VERSION = "hybrid-ui-20260722";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -181,7 +181,8 @@
     soul: loadImg("assets/sprites/soul_orb.png"),
     enemyDrake: loadImg("assets/sprites/enemy_drake.png"),
     enemyWisp: loadImg("assets/sprites/enemy_wisp.png"),
-    boss: loadImg("assets/sprites/ancient_boss.png")
+    boss: loadImg("assets/sprites/ancient_boss.png"),
+    panel: loadImg("assets/sprites/ui_panel_ornate.png")
   };
   const ATTACK_ANIM_TIME = 0.56;
   const HURT_ANIM_TIME = 0.42;
@@ -2246,7 +2247,7 @@
     drawSky(0);
     text("INCUBATE " + selectedName(), 54, 22, PAL.gold2, 2);
     drawIncubationEgg(W / 2, 96, warmth);
-    bar(80, 142, 160, 10, warmth / 100, PAL.red, PAL.gold2);
+    fancyBar(80, 142, 160, 10, warmth / 100, [120, 30, 55], [247, 198, 74]);
     text(Math.round(warmth) + "% WARM", 124, 156, PAL.blue2, 1);
     drawParticlesScreen();
     drawPostFX();
@@ -2479,12 +2480,8 @@
     const barW = 120;
     const x = Math.floor((W - barW) / 2);
     const y = H - 12;
-    rect(x - 1, y - 1, barW + 2, 6, PAL.uiDark);
-    rect(x, y, barW, 4, "#2a0f1c");
-    const fill = Math.max(0, Math.floor(barW * (boss.hp / boss.maxHp)));
-    rect(x, y, fill, 4, PAL.red);
-    rect(x, y, Math.max(0, fill - 1), 1, PAL.red2);
-    text("ANCIENT", x + 36, y - 9, PAL.red, 1);
+    fancyBar(x, y, barW, 5, boss.hp / boss.maxHp, [120, 30, 55], [232, 63, 95]);
+    text("ANCIENT", x + 36, y - 10, PAL.red, 1);
   }
 
   function drawSky(cam, camY = 0) {
@@ -3291,32 +3288,107 @@
     ctx.restore();
   }
 
-  function drawHud() {
-    rect(4, 4, 84, 26, PAL.uiDark);
-    // Hearts row; the heart at the edge of change blinks white briefly
-    for (let i = 0; i < 5; i += 1) {
-      const hx = 14 + i * 12;
-      if (i < player.hp) {
-        const blink = hpFlash > 0 && i === player.hp - 1 && Math.floor(time * 10) % 2 === 0;
-        if (imgReady(art.heart) && !blink) drawFittedAsset(art.heart, hx - 6, 6, 12, 12);
-        else drawPixelHeart(hx, 12, blink ? PAL.white : PAL.red, PAL.red2);
-      } else {
-        drawPixelHeart(hx, 12, "#3a1c2c", "#4a2438");
-      }
+  // --- Crafted HD-pixel HUD -------------------------------------------------
+  function mix(a, b, t) {
+    return "rgb(" + Math.round(a[0] + (b[0] - a[0]) * t) + "," +
+      Math.round(a[1] + (b[1] - a[1]) * t) + "," +
+      Math.round(a[2] + (b[2] - a[2]) * t) + ")";
+  }
+
+  // Gold-framed panel with a top sheen and corner studs.
+  function hudPanel(x, y, w, h) {
+    rect(x - 1, y - 1, w + 2, h + 2, PAL.gold);
+    rect(x, y, w, h, "#0b0e1e");
+    rect(x + 1, y + 1, w - 2, h - 2, PAL.uiDark);
+    rect(x + 2, y + 1, w - 4, 1, "#2a3454");
+    rect(x - 1, y - 1, 2, 2, PAL.gold2);
+    rect(x + w - 1, y - 1, 2, 2, PAL.gold2);
+    rect(x - 1, y + h - 1, 2, 2, PAL.gold2);
+    rect(x + w - 1, y + h - 1, 2, 2, PAL.gold2);
+  }
+
+  // 11x9 glossy heart, rect rows so it stays pixel-crisp at any zoom.
+  const HEART_ROWS = [
+    [[1, 3], [7, 3]],
+    [[0, 5], [6, 5]],
+    [[0, 11]],
+    [[0, 11]],
+    [[1, 9]],
+    [[2, 7]],
+    [[3, 5]],
+    [[4, 3]],
+    [[5, 1]]
+  ];
+  function glossHeart(x, y, filled, blink) {
+    const main = blink ? PAL.white : (filled ? PAL.red : "#3a1c2c");
+    const dark = filled ? "#7c1430" : "#241018";
+    for (let r = 0; r < HEART_ROWS.length; r += 1) {
+      for (const seg of HEART_ROWS[r]) rect(x + seg[0], y + r + 1, seg[1], 1, dark);
     }
-    text("FLAP", 8, 21, PAL.white, 1);
-    bar(44, 22, 40, 5, player.stamina, PAL.blue, PAL.gold2);
-    text(stageNames[player.stage], 110, 5, PAL.gold2, 1);
-    // Gem counter with a mini gem icon; counter pops white on pickup
-    rect(238, 6, 3, 7, PAL.gold2);
-    rect(236, 8, 7, 3, PAL.gold);
-    text(String(score), 248, 5, gemPulse > 0 ? PAL.white : PAL.gold2, 1);
+    for (let r = 0; r < HEART_ROWS.length; r += 1) {
+      for (const seg of HEART_ROWS[r]) rect(x + seg[0], y + r, seg[1], 1, main);
+    }
+    if (filled && !blink) {
+      rect(x + 2, y + 1, 2, 2, PAL.red2);   // gloss
+      rect(x + 2, y + 1, 1, 1, PAL.white);
+    }
+  }
+
+  // Beveled gradient bar with a travelling shine tick.
+  function fancyBar(x, y, w, h, frac, c0, c1) {
+    rect(x - 1, y - 1, w + 2, h + 2, "#7a5a1c");
+    rect(x, y, w, h, "#05060b");
+    const fw = Math.floor((w - 2) * clamp(frac, 0, 1));
+    for (let i = 0; i < fw; i += 1) {
+      rect(x + 1 + i, y + 1, 1, h - 2, mix(c0, c1, i / Math.max(1, w - 2)));
+    }
+    if (fw > 2) {
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      rect(x + 1, y + 1, fw, 1, PAL.white);
+      if (fw > 8) {
+        ctx.globalAlpha = 0.3;
+        rect(x + 1 + Math.floor((time * 30) % fw), y + 1, 2, h - 2, PAL.white);
+      }
+      ctx.restore();
+    }
+  }
+
+  function gemIconHud(x, y) {
+    rect(x + 3, y, 3, 2, PAL.blue2);
+    rect(x + 1, y + 2, 7, 2, PAL.blue);
+    rect(x + 2, y + 4, 5, 2, PAL.blue);
+    rect(x + 3, y + 6, 3, 1, PAL.blue3);
+    rect(x + 4, y + 7, 1, 1, PAL.blue3);
+    rect(x + 3, y + 1, 2, 1, PAL.white);
+  }
+
+  function drawHud() {
+    // Left: hearts + stamina in a gold-framed panel
+    hudPanel(4, 3, 88, 28);
+    for (let i = 0; i < 5; i += 1) {
+      const blink = hpFlash > 0 && i === player.hp - 1 && Math.floor(time * 10) % 2 === 0;
+      glossHeart(8 + i * 13, 7, i < player.hp, blink);
+    }
+    text("FLAP", 8, 20, PAL.white, 1);
+    fancyBar(46, 22, 42, 6, player.stamina, [27, 85, 200], [123, 232, 255]);
+
+    // Center: stage plaque sized to its name, XP bar beneath
+    const sname = stageNames[player.stage];
+    ctx.font = '8px "Courier New", monospace';
+    const tw = Math.min(120, Math.ceil(ctx.measureText(sname).width));
+    hudPanel(106, 2, tw + 10, 13);
+    text(sname, 111, 5, PAL.gold2, 1);
     const need = stageNeed[player.stage];
     const ratio = need >= 999 ? 1 : player.xp / need;
-    // XP bar flashes when evolution is close
-    const xpHi = ratio >= 0.8 && need < 999 && Math.floor(time * 6) % 2 === 0 ? PAL.white : PAL.gold2;
-    bar(110, 16, 74, 5, ratio, PAL.red, xpHi);
-    text("J FIRE", 248, 16, PAL.red2, 1);
+    const flash = ratio >= 0.8 && need < 999 && Math.floor(time * 6) % 2 === 0;
+    fancyBar(107, 19, 74, 6, ratio, [120, 30, 55], flash ? [255, 248, 214] : [247, 198, 74]);
+
+    // Right: gem counter + fire hint
+    hudPanel(236, 3, 80, 28);
+    gemIconHud(241, 7);
+    text(String(score), 254, 7, gemPulse > 0 ? PAL.white : PAL.gold2, 1);
+    text("J FIRE", 241, 20, PAL.red2, 1);
   }
 
   function drawEvolve() {
@@ -3353,14 +3425,29 @@
     blinkText("ENTER", 138, 150, PAL.white);
   }
 
+  // Ornate gold panel (AI-generated hero art) behind the "moment" screens;
+  // falls back to the crafted frame until the image loads.
+  function overlayPanel() {
+    if (imgReady(art.panel)) drawFittedAsset(art.panel, 48, 20, 224, 140);
+    else hudPanel(56, 40, 208, 104);
+  }
+
+  // Centre a text line horizontally (the ornate panel demands real centering).
+  function centerText(msg, y, c, scale) {
+    ctx.font = `${8 * (scale || 1)}px "Courier New", monospace`;
+    text(msg, Math.round((W - ctx.measureText(msg).width) / 2), y, c, scale || 1);
+  }
+
   function drawPause() {
     rect(0, 0, W, H, "rgba(0,0,0,0.55)");
-    text("PAUSED", 112, 76, PAL.gold2, 3);
-    text("P TO RESUME", 112, 108, PAL.white, 1);
+    overlayPanel();
+    centerText("PAUSED", 76, PAL.gold2, 3);
+    centerText("P TO RESUME", 108, PAL.white, 1);
   }
 
   function drawEnd() {
     rect(0, 0, W, H, "rgba(0,0,0,0.62)");
+    overlayPanel();
     // Use the PLAYED character's name, not a hardcoded "ALTOS" — Namisa dying
     // said "ALTOS RESTS". Centre it so any name length sits in the middle.
     const restMsg = currentChar().name + " RESTS";
@@ -3368,9 +3455,9 @@
     const restX = Math.round((W - ctx.measureText(restMsg).width) / 2);
     text(restMsg, restX + 2, 56, "#552340", 3);
     text(restMsg, restX, 54, PAL.red2, 3);
-    text("SCORE " + score, 120, 90, PAL.gold2, 2);
-    blinkText("ENTER: RISE AT CHECKPOINT", 62, 122, PAL.white);
-    text("R: START OVER", 106, 140, "#7a86b8", 1);
+    centerText("SCORE " + score, 90, PAL.gold2, 2);
+    if (Math.floor(time * 3) % 2 === 0) centerText("ENTER: RISE AT CHECKPOINT", 122, PAL.white, 1);
+    centerText("R: START OVER", 140, "#7a86b8", 1);
   }
 
   function drawWin() {
@@ -3391,12 +3478,15 @@
       });
     }
     drawParticlesWorld(); // redraw on top of the dim overlay so confetti pops
-    text("VICTORY", 103, 53, "#552340", 4);
-    text("VICTORY", 100, 50, PAL.gold2, 4);
-    text("THE ANCIENT FALLS", 78, 88, PAL.red2, 2);
-    text("SCORE " + score, 120, 112, PAL.white, 2);
-    text("BEST " + best, 130, 130, PAL.gold2, 1);
-    blinkText("R TO PLAY AGAIN", 96, 150, PAL.white);
+    overlayPanel();
+    ctx.font = `${8 * 4}px "Courier New", monospace`;
+    const vx = Math.round((W - ctx.measureText("VICTORY").width) / 2);
+    text("VICTORY", vx + 3, 53, "#552340", 4);
+    text("VICTORY", vx, 50, PAL.gold2, 4);
+    centerText("THE ANCIENT FALLS", 88, PAL.red2, 2);
+    centerText("SCORE " + score, 112, PAL.white, 2);
+    centerText("BEST " + best, 130, PAL.gold2, 1);
+    if (Math.floor(time * 3) % 2 === 0) centerText("R TO PLAY AGAIN", 150, PAL.white, 1);
   }
 
   function drawBorder() {
