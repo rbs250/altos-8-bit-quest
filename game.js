@@ -66,7 +66,7 @@
           ? window.ALTOS_CHARACTERS
           : [{ id: "altos_01", name: "ALTOS", sheet: "assets/sprites/altos_01_sheet.png" }]
       }];
-  const ASSET_VERSION = "hybrid-ui-20260722";
+  const ASSET_VERSION = "select-hd-20260722";
   function assetUrl(path) {
     return path + (path.includes("?") ? "&" : "?") + "v=" + ASSET_VERSION;
   }
@@ -1555,8 +1555,8 @@
       ? Math.max(0.16, 0.30 - player.stage * 0.02)
       : Math.max(0.08, 0.16 - player.stage * 0.015);
     const mouth = playerMouthPoint();
-    const w = (22 + player.stage * 5) * (lava ? 1.3 : 1);
-    const h = (14 + player.stage * 2) * (lava ? 1.3 : 1);
+    const w = (32 + player.stage * 6.5) * (lava ? 1.3 : 1);
+    const h = (21 + player.stage * 3) * (lava ? 1.3 : 1);
     const fx = mouth.x + player.face * (w * 0.46);
     const fy = mouth.y;
     fires.push({
@@ -2056,6 +2056,33 @@
     text("8-BIT QUEST", x + 4, y + 34, PAL.red2, 2);
   }
 
+  // Crafted gold display pedestal for the character-select carousel (replaces
+  // the old flat gold/brown bar + grass tufts). The selected slot glows.
+  function drawPedestal(cx, y, w, sel) {
+    const half = Math.floor(w / 2);
+    if (sel) {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      glowBlob(cx, y + 3, w * 0.85, "#2f4f8f", 0.5);
+      glowBlob(cx, y + 3, w * 0.45, PAL.blue2, 0.22 + Math.sin(time * 3) * 0.08);
+      ctx.restore();
+    }
+    // top slab the dragon stands on
+    rect(cx - half, y, w, 4, PAL.gold);
+    rect(cx - half + 1, y + 1, w - 2, 1, PAL.gold2);
+    rect(cx - half + 2, y, w - 4, 1, "#fffbe0");
+    // tapered stone body with gold pilasters + a centre gem
+    rect(cx - half + 3, y + 4, w - 6, 9, "#232842");
+    rect(cx - half + 4, y + 4, w - 8, 1, "#454f74");
+    rect(cx - half + 3, y + 4, 3, 9, PAL.gold);
+    rect(cx + half - 6, y + 4, 3, 9, PAL.gold);
+    rect(cx - half + 4, y + 13, w - 8, 2, "#12162a");
+    const gc = sel ? PAL.blue2 : "#2f6fae";
+    rect(cx - 3, y + 6, 6, 5, gc);
+    rect(cx - 2, y + 6, 4, 1, PAL.white);
+    rect(cx - 1, y + 11, 2, 1, "#12162a");
+  }
+
   function drawSelect() {
     drawSky(time * 4);
     text("CHOOSE YOUR DRAGON", 42, 14, PAL.gold2, 2);
@@ -2068,24 +2095,21 @@
     drawSideDragonSlot(56, 132, prev);
     drawSideDragonSlot(264, 132, next);
 
-    // Center card
+    // Center pedestal
     const cx = 160;
     const platformY = 126;
-    const cardW = 84;
-    const cardX = cx - cardW / 2;
-    rect(cardX, platformY, cardW, 4, PAL.gold2);
-    rect(cardX + 2, platformY + 4, cardW - 4, 7, "#7b4b2c");
-    for (let tx = 0; tx < cardW; tx += 8) rect(cardX + tx + 3, platformY - 3, 3, 3, PAL.grass);
-    rect(cardX - 2, platformY - 2, 2, 15, PAL.blue2);
-    rect(cardX + cardW, platformY - 2, 2, 15, PAL.blue2);
+    const cardW = 88;
+    drawPedestal(cx, platformY, cardW, true);
     drawSelectionSparks(cx, 91);
     if (unlocked) {
       drawDragonPreview(cx, 124, 0, 80, Math.floor(time * 3) % 2 === 0);
     } else {
       drawSilhouettePreview(cx, platformY - 2, 66, ch);
     }
-    const nameW = ch.name.length * 8;
-    text(ch.name, cx - nameW / 2, platformY + 16, unlocked ? PAL.gold2 : "#7a86b8", 1);
+    // framed name plaque (matches the HUD panels)
+    const nameW = ch.name.length * 6 + 12;
+    hudPanel(cx - nameW / 2, platformY + 14, nameW, 12);
+    text(ch.name, cx - ch.name.length * 3, platformY + 16, unlocked ? PAL.gold2 : "#7a86b8", 1);
     if (ch.tagline && unlocked) {
       text(ch.tagline, cx - ch.tagline.length * 4, 34, PAL.blue2, 1);
     }
@@ -2103,10 +2127,7 @@
   }
 
   function drawSideDragonSlot(cx, platformY, ch) {
-    const cardW = 52;
-    const cardX = cx - cardW / 2;
-    rect(cardX, platformY, cardW, 4, PAL.gold);
-    rect(cardX + 2, platformY + 4, cardW - 4, 7, "#4c2f27");
+    drawPedestal(cx, platformY, 54, false);
     ctx.save();
     ctx.globalAlpha = 0.55;
     if (isUnlocked(ch)) {
